@@ -33,17 +33,47 @@ export function OfflineProvider({
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [hasConflicts, setHasConflicts] = useState<boolean>(false);
   const [conflictStores, setConflictStores] = useState<string[]>([]);
+  const [dbInitialized, setDbInitialized] = useState<boolean>(false);
   const { toast } = useToast();
+
+  // Initialize the database
+  useEffect(() => {
+    const initDB = async () => {
+      try {
+        await initDatabase();
+        setDbInitialized(true);
+      } catch (error) {
+        console.error('Failed to initialize database:', error);
+        // If in development, suggest clearing IndexedDB
+        if (process.env.NODE_ENV === 'development') {
+          toast({
+            variant: "destructive",
+            title: "Database Initialization Error",
+            description: "Try clearing your browser's IndexedDB storage and reloading.",
+          });
+        }
+      }
+    };
+    
+    initDB();
+  }, []);
 
   // Check for conflicts in any of the sync stores
   const checkForConflicts = async () => {
+    if (!dbInitialized) return;
+    
     try {
       const storesWithConflicts = [];
       
       for (const store of syncStores) {
-        const conflicts = await getAll(`${store}_conflicts`);
-        if (conflicts.length > 0) {
-          storesWithConflicts.push(store);
+        try {
+          const conflicts = await getAll(`${store}_conflicts`);
+          if (conflicts.length > 0) {
+            storesWithConflicts.push(store);
+          }
+        } catch (error) {
+          console.error(`Error checking conflicts for ${store}:`, error);
+          // Continue with other stores even if one fails
         }
       }
       
@@ -56,7 +86,7 @@ export function OfflineProvider({
 
   // Function to manually trigger a sync
   const syncNow = async () => {
-    if (isSyncing) return;
+    if (isSyncing || !dbInitialized) return;
     
     try {
       setIsSyncing(true);
@@ -85,6 +115,8 @@ export function OfflineProvider({
 
   // Set up online/offline detection
   useEffect(() => {
+    if (!dbInitialized) return;
+    
     const handleOnline = () => {
       setIsOnline(true);
       toast({
@@ -126,7 +158,7 @@ export function OfflineProvider({
       window.removeEventListener('offline', handleOffline);
       clearInterval(syncInterval);
     };
-  }, [isOnline]);
+  }, [isOnline, dbInitialized]);
 
   const contextValue: OfflineContextType = {
     isOnline,

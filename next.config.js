@@ -3,7 +3,6 @@ import withPWA from 'next-pwa';
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
   // Force the use of SWC compiler instead of Babel
   experimental: {
     forceSwcTransforms: true,

@@ -3,14 +3,16 @@
  */
 
 const DB_NAME = 'MarathonRegistrationDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 // Define object stores (tables) and their key paths
 const STORES = {
   events: { keyPath: 'id' },
   tickets: { keyPath: 'id' },
   registrations: { keyPath: 'id' },
-  syncQueue: { keyPath: 'id', autoIncrement: true }
+  syncQueue: { keyPath: 'id', autoIncrement: true },
+  notes: { keyPath: 'id' },
+  notes_conflicts: { keyPath: 'id' }
 };
 
 // Define types for sync queue items
@@ -44,17 +46,21 @@ export async function initDatabase(): Promise<IDBDatabase> {
     const request = window.indexedDB.open(DB_NAME, DB_VERSION);
     
     request.onerror = (event) => {
-      reject(new Error('Failed to open database'));
+      console.error('IndexedDB error:', request.error);
+      reject(new Error(`Failed to open database: ${request.error?.message || 'Unknown error'}`));
     };
     
     request.onsuccess = (event) => {
       db = request.result;
+      console.log(`Successfully opened IndexedDB v${DB_VERSION}`);
       resolve(db);
     };
     
     // Set up database schema if it's a new database or version upgrade
     request.onupgradeneeded = (event) => {
       const database = request.result;
+      const oldVersion = event.oldVersion;
+      console.log(`Upgrading IndexedDB from v${oldVersion} to v${DB_VERSION}`);
       
       // Create object stores for each entity
       for (const [storeName, options] of Object.entries(STORES)) {
@@ -287,4 +293,45 @@ export async function clearDatabase(): Promise<void> {
   });
   
   await Promise.all(promises);
+}
+
+/**
+ * Utility function to completely reset the IndexedDB database
+ * Only use this in development for troubleshooting
+ */
+export async function resetDatabase(): Promise<void> {
+  if (db) {
+    db.close();
+    db = null;
+  }
+  
+  return new Promise((resolve, reject) => {
+    const deleteRequest = window.indexedDB.deleteDatabase(DB_NAME);
+    
+    deleteRequest.onerror = () => {
+      reject(new Error('Failed to delete database'));
+    };
+    
+    deleteRequest.onsuccess = () => {
+      console.log('Database deleted successfully');
+      resolve();
+    };
+  });
+}
+
+/**
+ * Helper function to add to console for development debugging
+ * Call this from browser console: window.clearMarathonDB()
+ */
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  (window as any).clearMarathonDB = async () => {
+    try {
+      await resetDatabase();
+      console.log('✅ IndexedDB cleared. Please reload the page.');
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to clear IndexedDB:', error);
+      return false;
+    }
+  };
 } 

@@ -9,6 +9,7 @@ import { OfflineProvider } from '@/context/OfflineContext';
 import { OfflineBanner } from '@/components/ui/offline-banner';
 import { SiteHeader } from '@/components/navigation/site-header';
 import { NProgressProvider } from '@/components/providers/nprogress-provider';
+import { DatabaseResetButton } from '@/components/debug/DatabaseResetButton';
 
 // Font handled via CSS instead of next/font
 // const inter = Inter({ subsets: ['latin'] });
@@ -50,6 +51,7 @@ export default async function RootLayout({
                 {children}
               </main>
               <OfflineBanner />
+              <DatabaseResetButton />
             </OfflineProvider>
           </NProgressProvider>
         </ThemeProvider>
