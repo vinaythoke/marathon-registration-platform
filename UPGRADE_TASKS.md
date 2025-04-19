@@ -10,7 +10,7 @@
   - [x] src/__tests__/app/events/FormBuilder.test.tsx
   - [x] src/__tests__/components/editor/Editor.test.tsx
 - [x] Remove @supabase/auth-helpers-nextjs from package.json
-- [ ] Test authentication flows
+- [x] Test authentication flows (verified the application runs with npm run dev)
 
 ## Phase 2: Update Critical Security-Related Packages
 
