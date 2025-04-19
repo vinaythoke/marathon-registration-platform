@@ -1,12 +1,18 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { resetDatabase } from '@/lib/offline/db';
 import { useToast } from '@/components/ui/use-toast';
 
 export const DatabaseResetButton = () => {
   const [isResetting, setIsResetting] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const { toast } = useToast();
+
+  // Handle client-side mounting
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleReset = async () => {
     if (isResetting) return;
@@ -42,8 +48,8 @@ export const DatabaseResetButton = () => {
     }
   };
 
-  // Only show in development
-  if (process.env.NODE_ENV !== 'development') {
+  // Only show in development and when client-side mounted
+  if (!mounted || process.env.NODE_ENV !== 'development') {
     return null;
   }
 

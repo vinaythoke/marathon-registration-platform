@@ -12,9 +12,17 @@ export function usePwaInstall() {
   const [isInstalled, setIsInstalled] = useState(false);
   const [isOffline, setIsOffline] = useState(false); // Default to online (false)
   const [isInstallable, setIsInstallable] = useState(false);
+  const [mounted, setMounted] = useState(false);
   
-  // Register service worker
+  // Track client-side mounting
   useEffect(() => {
+    setMounted(true);
+  }, []);
+  
+  // Register service worker - but only client-side
+  useEffect(() => {
+    if (!mounted) return;
+    
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/service-worker.js')
@@ -26,10 +34,12 @@ export function usePwaInstall() {
           });
       });
     }
-  }, []);
+  }, [mounted]);
   
-  // Listen for online/offline events
+  // Listen for online/offline events - but only client-side
   useEffect(() => {
+    if (!mounted) return;
+    
     // Check initial online status
     const checkOnlineStatus = () => {
       // Use navigator.onLine as the primary check
@@ -56,10 +66,12 @@ export function usePwaInstall() {
       window.removeEventListener('offline', checkOnlineStatus);
       clearInterval(intervalId);
     };
-  }, [isOffline]);
+  }, [isOffline, mounted]);
   
-  // Handle beforeinstallprompt event
+  // Handle beforeinstallprompt event - but only client-side
   useEffect(() => {
+    if (!mounted) return;
+    
     const handleBeforeInstallPrompt = (e: Event) => {
       // Prevent the mini-infobar from appearing on mobile
       e.preventDefault();
@@ -74,10 +86,12 @@ export function usePwaInstall() {
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
-  }, []);
+  }, [mounted]);
   
-  // Listen for app installed event
+  // Listen for app installed event - but only client-side
   useEffect(() => {
+    if (!mounted) return;
+    
     const handleAppInstalled = () => {
       // Clear the prompt reference
       setInstallPrompt(null);
@@ -92,7 +106,7 @@ export function usePwaInstall() {
     return () => {
       window.removeEventListener('appinstalled', handleAppInstalled);
     };
-  }, []);
+  }, [mounted]);
   
   // Trigger PWA installation prompt
   const promptInstall = async () => {
@@ -113,6 +127,16 @@ export function usePwaInstall() {
     setIsInstallable(choiceResult.outcome !== 'accepted');
     setIsInstalled(choiceResult.outcome === 'accepted');
   };
+  
+  // Return safe values for SSR - these will be replaced client-side after mounting
+  if (!mounted) {
+    return {
+      isInstallable: false,
+      isInstalled: false,
+      isOffline: false,
+      promptInstall: async () => {}
+    };
+  }
   
   return {
     isInstallable,

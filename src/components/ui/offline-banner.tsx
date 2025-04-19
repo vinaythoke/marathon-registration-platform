@@ -7,12 +7,22 @@ import { Button } from "./button";
 import { Alert, AlertTitle, AlertDescription } from "./alert";
 
 export function OfflineBanner() {
-  const { isOffline, isInstallable, promptInstall } = usePwaInstall();
-  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [confirmedOffline, setConfirmedOffline] = useState(false);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  
+  // Handle client-side mounting to prevent hydration issues
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  
+  // Only access browser APIs after component is mounted
+  const { isOffline, isInstallable, promptInstall } = usePwaInstall();
   
   // Show installation banner after a delay if the app is installable
   useEffect(() => {
+    if (!mounted) return;
+    
     if (isInstallable) {
       const timer = setTimeout(() => {
         setShowInstallBanner(true);
@@ -22,10 +32,12 @@ export function OfflineBanner() {
     } else {
       setShowInstallBanner(false);
     }
-  }, [isInstallable]);
+  }, [isInstallable, mounted]);
   
   // Debounce offline status to prevent flashing
   useEffect(() => {
+    if (!mounted) return;
+    
     let timeoutId: NodeJS.Timeout;
     
     if (isOffline) {
@@ -41,10 +53,12 @@ export function OfflineBanner() {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [isOffline]);
+  }, [isOffline, mounted]);
   
   // Additional network connectivity check
   useEffect(() => {
+    if (!mounted) return;
+    
     const checkConnectivity = async () => {
       try {
         // Try to fetch a tiny resource to verify actual connectivity
@@ -73,7 +87,12 @@ export function OfflineBanner() {
     if (isOffline) {
       checkConnectivity();
     }
-  }, [isOffline]);
+  }, [isOffline, mounted]);
+  
+  // Don't render anything during SSR or initial mount to prevent hydration issues
+  if (!mounted) {
+    return null;
+  }
   
   if (!confirmedOffline && !showInstallBanner) {
     return null;

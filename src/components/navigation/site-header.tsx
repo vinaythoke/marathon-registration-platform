@@ -11,12 +11,20 @@ import { cn } from '@/lib/utils';
 export function SiteHeader() {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
-  const supabase = createClient();
+
+  // Handle client-side mounting
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
+    if (!mounted) return;
+    
     async function checkAuthStatus() {
       try {
+        const supabase = createClient();
         const { data } = await supabase.auth.getSession();
         setIsLoggedIn(!!data.session);
       } catch (error) {
@@ -27,7 +35,32 @@ export function SiteHeader() {
     }
     
     checkAuthStatus();
-  }, [supabase.auth]);
+  }, [mounted]);
+
+  const handleLogout = async () => {
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+      setIsLoggedIn(false);
+      window.location.href = '/';
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
+  // Show a simplified header during SSR and initial client render
+  if (!mounted) {
+    return (
+      <header className="bg-background sticky top-0 z-40 w-full border-b">
+        <div className="container flex h-16 items-center justify-between">
+          <Link href="/" className="font-bold text-lg">
+            Marathon Registration
+          </Link>
+          <div className="w-[120px]"></div> {/* Placeholder for layout stability */}
+        </div>
+      </header>
+    );
+  }
 
   return (
     <header className="bg-background sticky top-0 z-40 w-full border-b">
@@ -47,11 +80,7 @@ export function SiteHeader() {
                   </Link>
                   <Button
                     variant="outline"
-                    onClick={async () => {
-                      await supabase.auth.signOut();
-                      setIsLoggedIn(false);
-                      window.location.href = '/';
-                    }}
+                    onClick={handleLogout}
                   >
                     Logout
                   </Button>

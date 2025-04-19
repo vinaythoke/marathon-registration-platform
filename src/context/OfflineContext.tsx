@@ -34,10 +34,18 @@ export function OfflineProvider({
   const [hasConflicts, setHasConflicts] = useState<boolean>(false);
   const [conflictStores, setConflictStores] = useState<string[]>([]);
   const [dbInitialized, setDbInitialized] = useState<boolean>(false);
+  const [mounted, setMounted] = useState<boolean>(false);
   const { toast } = useToast();
 
-  // Initialize the database
+  // Track if we're client-side mounted to prevent hydration issues
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Initialize the database - but only on client side
+  useEffect(() => {
+    if (!mounted) return;
+    
     const initDB = async () => {
       try {
         await initDatabase();
@@ -56,11 +64,11 @@ export function OfflineProvider({
     };
     
     initDB();
-  }, []);
+  }, [mounted, toast]);
 
   // Check for conflicts in any of the sync stores
   const checkForConflicts = async () => {
-    if (!dbInitialized) return;
+    if (!dbInitialized || !mounted) return;
     
     try {
       const storesWithConflicts = [];
@@ -86,7 +94,7 @@ export function OfflineProvider({
 
   // Function to manually trigger a sync
   const syncNow = async () => {
-    if (isSyncing || !dbInitialized) return;
+    if (isSyncing || !dbInitialized || !mounted) return;
     
     try {
       setIsSyncing(true);
@@ -115,7 +123,7 @@ export function OfflineProvider({
 
   // Set up online/offline detection
   useEffect(() => {
-    if (!dbInitialized) return;
+    if (!dbInitialized || !mounted) return;
     
     const handleOnline = () => {
       setIsOnline(true);
@@ -158,7 +166,7 @@ export function OfflineProvider({
       window.removeEventListener('offline', handleOffline);
       clearInterval(syncInterval);
     };
-  }, [isOnline, dbInitialized]);
+  }, [isOnline, dbInitialized, mounted]);
 
   const contextValue: OfflineContextType = {
     isOnline,
@@ -168,6 +176,12 @@ export function OfflineProvider({
     syncNow,
     lastSyncTime,
   };
+  
+  // When server-rendering or first mounting, return a placeholder context with default values
+  // This prevents hydration mismatch errors since IndexedDB operations only work client-side
+  if (!mounted) {
+    return <OfflineContext.Provider value={contextValue}>{children}</OfflineContext.Provider>;
+  }
   
   return (
     <OfflineContext.Provider value={contextValue}>
