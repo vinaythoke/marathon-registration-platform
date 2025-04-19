@@ -34,8 +34,8 @@ jest.mock('@hello-pangea/dnd', () => ({
   }),
 }));
 
-jest.mock('@supabase/auth-helpers-nextjs', () => ({
-  createClientComponentClient: () => ({
+jest.mock('@supabase/ssr', () => ({
+  createBrowserClient: () => ({
     from: jest.fn().mockReturnValue({
       select: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
@@ -83,7 +83,7 @@ jest.mock('@supabase/auth-helpers-nextjs', () => ({
       }),
     },
   }),
-  createServerComponentClient: () => ({
+  createServerClient: () => ({
     from: jest.fn().mockReturnValue({
       select: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({

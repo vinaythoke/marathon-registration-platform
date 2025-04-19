@@ -18,8 +18,8 @@ jest.mock('@/components/ui/use-toast', () => ({
   useToast: () => ({ toast: jest.fn() }),
 }));
 
-jest.mock('@supabase/auth-helpers-nextjs', () => ({
-  createClientComponentClient: () => ({
+jest.mock('@supabase/ssr', () => ({
+  createBrowserClient: () => ({
     from: jest.fn().mockReturnValue({
       insert: jest.fn().mockReturnValue({
         select: jest.fn().mockResolvedValue({

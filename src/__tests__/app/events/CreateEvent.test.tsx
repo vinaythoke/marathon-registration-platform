@@ -8,8 +8,8 @@ jest.mock('next/navigation', () => ({
   redirect: jest.fn(),
 }));
 
-jest.mock('@supabase/auth-helpers-nextjs', () => ({
-  createServerComponentClient: () => ({
+jest.mock('@supabase/ssr', () => ({
+  createServerClient: () => ({
     auth: {
       getSession: jest.fn().mockResolvedValue({
         data: {

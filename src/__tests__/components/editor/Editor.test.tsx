@@ -49,8 +49,8 @@ jest.mock('@/components/ui/use-toast', () => ({
   useToast: () => ({ toast: jest.fn() }),
 }));
 
-jest.mock('@supabase/auth-helpers-nextjs', () => ({
-  createClientComponentClient: () => ({
+jest.mock('@supabase/ssr', () => ({
+  createBrowserClient: () => ({
     storage: {
       from: () => ({
         upload: jest.fn().mockResolvedValue({ data: { path: 'test-path' }, error: null }),
