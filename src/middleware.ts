@@ -6,10 +6,24 @@ export async function middleware(request: NextRequest) {
   // Check if we're using local DB
   const isLocalDb = process.env.IS_LOCAL_DB === 'true';
   
+  // Get URL info
+  const { pathname } = request.nextUrl;
+  
+  // Handle direct access to /auth path to prevent redirect loops
+  if (pathname === '/auth') {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = '/auth/login';
+    // Preserve any query parameters
+    const redirectTo = request.nextUrl.searchParams.get('redirectTo');
+    if (redirectTo) {
+      redirectUrl.searchParams.set('redirectTo', redirectTo);
+    }
+    return NextResponse.redirect(redirectUrl);
+  }
+  
   // If we're using local DB in development, skip Supabase auth checks
   if (isLocalDb) {
     // Check if trying to access protected routes
-    const { pathname } = request.nextUrl;
     
     // For local development with auth routes, redirect to dashboard
     if (pathname.startsWith('/auth')) {
@@ -53,9 +67,6 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Get URL info
-  const { pathname } = request.nextUrl;
-
   // If user is signed in and tries to access auth page, redirect to dashboard
   if (user && pathname.startsWith('/auth')) {
     const redirectUrl = request.nextUrl.clone();
@@ -69,7 +80,7 @@ export async function middleware(request: NextRequest) {
 
   if (!user && isProtectedRoute) {
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = '/auth';
+    redirectUrl.pathname = '/auth/login';
     redirectUrl.searchParams.set('redirectTo', pathname);
     return NextResponse.redirect(redirectUrl);
   }
