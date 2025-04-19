@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Loader2 } from 'lucide-react';
 import { signIn, signUp, googleSignIn } from '@/lib/auth';
 
 // Form validation schema
@@ -87,7 +87,18 @@ export function AuthForm({ type, onSubmit, onToggleMode }: AuthFormProps) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full max-w-[350px]">
+      {isLoading && (
+        <div className="fixed inset-0 bg-background/80 flex items-center justify-center z-50">
+          <div className="bg-card p-6 rounded-lg shadow-lg flex flex-col items-center space-y-4 w-[280px] max-w-[90vw]">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm font-medium">
+              {type === 'login' ? 'Signing in...' : 'Creating account...'}
+            </p>
+          </div>
+        </div>
+      )}
+      
       <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
@@ -135,8 +146,8 @@ export function AuthForm({ type, onSubmit, onToggleMode }: AuthFormProps) {
 
         <Button type="submit" className="w-full" disabled={isLoading}>
           {isLoading ? (
-            <span className="flex items-center gap-2">
-              <span className="animate-spin">⏳</span>
+            <span className="flex items-center justify-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
               {type === 'login' ? 'Signing in...' : 'Creating account...'}
             </span>
           ) : (
@@ -167,7 +178,14 @@ export function AuthForm({ type, onSubmit, onToggleMode }: AuthFormProps) {
           disabled={isLoading}
           className="w-full"
         >
-          Continue with Google
+          {isLoading ? (
+            <span className="flex items-center justify-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Connecting to Google...
+            </span>
+          ) : (
+            "Continue with Google"
+          )}
         </Button>
       )}
     </div>

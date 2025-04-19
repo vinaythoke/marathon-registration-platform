@@ -1,28 +1,32 @@
 /**
  * Script to register test users in Supabase Auth
- * SAFER VERSION: Checks if users exist before creating them
- *
- * This script creates test accounts for the Marathon Registration Platform
- * with consistent UUIDs to match the database records.
  * 
- * Prerequisites:
- * 1. Node.js installed
+ * IMPORTANT: This script is for development and testing purposes only.
+ * It should never be used in production environments.
+ * 
+ * Usage:
+ * ------
+ * 1. Create .env.local file with the required environment variables
  * 2. npm install @supabase/supabase-js dotenv
  * 3. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local
+ * 4. Set TEST_USER_PASSWORD in .env.local for secure password usage
+ * 5. Run: node register_test_users_safe.js
  */
 
-import { config } from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+import { config } from 'dotenv';
+import { randomBytes } from 'crypto';
 
 // Load environment variables from .env.local
 config({ path: '.env.local' });
 
-// Configuration
+// Extract configuration from environment variables
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const TEST_USER_PASSWORD = process.env.TEST_USER_PASSWORD || generateSecurePassword();
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  console.error('Error: Missing environment variables!');
+  console.error('Missing required environment variables');
   console.error('Make sure you have NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local');
   process.exit(1);
 }
@@ -35,12 +39,22 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   }
 });
 
+/**
+ * Generate a cryptographically secure random password
+ * Only used if TEST_USER_PASSWORD is not defined in environment
+ */
+function generateSecurePassword() {
+  // Generate a secure random string (16 bytes = 32 hex chars)
+  const randomString = randomBytes(16).toString('hex');
+  // Ensure password complexity requirements are met
+  return `Secure${randomString.substring(0, 8)}!${Math.floor(Math.random() * 100)}`;
+}
+
 // Test accounts to register
 const TEST_ACCOUNTS = [
   {
     id: '00000000-0000-0000-0000-000000000001',
     email: 'organizer1@example.com',
-    password: 'Password123!',
     user_metadata: {
       first_name: 'John',
       last_name: 'Organizer',
@@ -50,7 +64,6 @@ const TEST_ACCOUNTS = [
   {
     id: '00000000-0000-0000-0000-000000000002',
     email: 'organizer2@example.com',
-    password: 'Password123!',
     user_metadata: {
       first_name: 'Jane',
       last_name: 'Event',
@@ -60,7 +73,6 @@ const TEST_ACCOUNTS = [
   {
     id: '00000000-0000-0000-0000-000000000003',
     email: 'runner1@example.com',
-    password: 'Password123!',
     user_metadata: {
       first_name: 'Mike',
       last_name: 'Runner',
@@ -70,7 +82,6 @@ const TEST_ACCOUNTS = [
   {
     id: '00000000-0000-0000-0000-000000000004',
     email: 'runner2@example.com',
-    password: 'Password123!',
     user_metadata: {
       first_name: 'Sarah',
       last_name: 'Fast',
@@ -80,7 +91,6 @@ const TEST_ACCOUNTS = [
   {
     id: '00000000-0000-0000-0000-000000000005',
     email: 'runner3@example.com',
-    password: 'Password123!',
     user_metadata: {
       first_name: 'David',
       last_name: 'Marathon',
@@ -90,7 +100,6 @@ const TEST_ACCOUNTS = [
   {
     id: '00000000-0000-0000-0000-000000000006',
     email: 'volunteer1@example.com',
-    password: 'Password123!',
     user_metadata: {
       first_name: 'Lisa',
       last_name: 'Helper',
@@ -100,7 +109,6 @@ const TEST_ACCOUNTS = [
   {
     id: '00000000-0000-0000-0000-000000000007',
     email: 'volunteer2@example.com',
-    password: 'Password123!',
     user_metadata: {
       first_name: 'Tom',
       last_name: 'Assist',
@@ -145,7 +153,7 @@ async function createUser(userData) {
     const { data, error } = await supabase.auth.admin.createUser({
       uuid: userData.id,
       email: userData.email,
-      password: userData.password,
+      password: TEST_USER_PASSWORD,
       email_confirm: true, // Auto-confirm email
       user_metadata: userData.user_metadata
     });
@@ -168,6 +176,8 @@ async function createUser(userData) {
  */
 async function registerTestUsers() {
   console.log('Starting test user registration...');
+  console.log('\n⚠️  WARNING: This script creates test accounts for development purposes only ⚠️');
+  console.log('⚠️  NEVER use in production environments ⚠️\n');
   
   const results = [];
   
@@ -208,6 +218,15 @@ async function registerTestUsers() {
   console.log(`- ${successCount} users created successfully`);
   console.log(`- ${skipCount} users already existed (skipped)`);
   console.log(`- ${failCount} users failed to create`);
+  
+  if (successCount > 0) {
+    console.log(`\nTest accounts created with ${process.env.TEST_USER_PASSWORD ? 'environment variable password' : 'secure generated password'}`);
+    if (!process.env.TEST_USER_PASSWORD) {
+      console.log(`\nGenerated Password: ${TEST_USER_PASSWORD}`);
+      console.log('Make note of this password as it will be different on each run without TEST_USER_PASSWORD set');
+    }
+  }
+  
   console.log('\nTest user registration complete!');
 }
 

@@ -5,6 +5,8 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { Database } from '@/database.types';
 import { revalidatePath } from 'next/cache';
+import { createClient } from '@/lib/supabase/server';
+import { withCsrf } from '@/lib/csrf';
 
 type RunnerProfile = Database['public']['Tables']['runner_profiles']['Row'];
 type RunnerProfileInsert = Partial<Omit<Database['public']['Tables']['runner_profiles']['Row'], 'created_at' | 'updated_at'>>;
@@ -18,14 +20,19 @@ const createServerSupabaseClient = () => {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
+        getAll() {
+          return cookieStore.getAll();
         },
-        set(name: string, value: string, options: any) {
-          cookieStore.set({ name, value, ...options });
-        },
-        remove(name: string, options: any) {
-          cookieStore.set({ name, value: '', ...options });
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {
+            // The `setAll` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing
+            // user sessions.
+          }
         },
       },
     }
@@ -36,80 +43,28 @@ const createServerSupabaseClient = () => {
  * Get the current user's runner profile
  */
 export async function getRunnerProfile(): Promise<RunnerProfile | null> {
-  // Check if using local development environment
-  const isLocalDb = process.env.IS_LOCAL_DB === 'true';
-  
-  if (isLocalDb) {
-    // Return a mock profile for local development
-    return {
-      id: 'mock-user-id',
-      address: '123 Main St',
-      city: 'Test City',
-      state: 'Test State',
-      postal_code: '12345',
-      country: 'Test Country',
-      phone: '+1-555-123-4567',
-      date_of_birth: new Date('1990-01-01').toISOString(),
-      gender: 'prefer_not_to_say',
-      medical_conditions: null,
-      allergies: null,
-      medications: null,
-      blood_type: 'unknown',
-      emergency_contact_name: 'Emergency Contact',
-      emergency_contact_phone: '+1-555-987-6543',
-      emergency_contact_relationship: 'Family',
-      experience_level: 'intermediate',
-      years_running: 5,
-      previous_marathons: 2,
-      average_pace: '5:30',
-      preferred_distance: ['5k', '10k', 'half-marathon'],
-      running_goals: 'Complete a full marathon',
-      t_shirt_size: 'L',
-      profile_image_url: null,
-      bio: 'Test runner bio',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as RunnerProfile;
-  }
-
-  const supabase = createServerSupabaseClient();
-  
-  // Get the current session
-  const { data: { session } } = await supabase.auth.getSession();
-  
-  if (!session) {
-    redirect('/auth');
-    // Return null to satisfy TypeScript - this code is unreachable after redirect
-    return null;
-  }
-  
-  // Check if the user is a runner
-  const { data: userData, error: userError } = await supabase
-    .from('users')
-    .select('role')
-    .eq('id', session.user.id)
-    .single();
+  try {
+    const supabase = await createClient();
     
-  if (userError || userData?.role !== 'runner') {
-    return null;
-  }
+    // Check if user is authenticated
+    const { data: { session } } = await supabase.auth.getSession();
     
-  // Get the runner profile
-  const { data, error } = await supabase
-    .from('runner_profiles')
-    .select('*')
-    .eq('id', session.user.id)
-    .single();
-    
-  if (error) {
-    // If the profile doesn't exist, return null
-    if (error.code === 'PGRST116') {
+    if (!session) {
       return null;
     }
-    throw new Error(`Error fetching runner profile: ${error.message}`);
+    
+    // Get profile from database
+    const { data } = await supabase
+      .from('runner_profiles')
+      .select('*')
+      .eq('id', session.user.id)
+      .single();
+    
+    return data;
+  } catch (error) {
+    console.error('Error getting profile:', error);
+    return null;
   }
-  
-  return data;
 }
 
 /**
@@ -177,45 +132,78 @@ export async function createRunnerProfile(
 
 /**
  * Update the current user's runner profile
+ * Protected by CSRF token validation
  */
-export async function updateRunnerProfile(profileData: RunnerProfileUpdate) {
-  const isLocalDb = process.env.IS_LOCAL_DB === 'true';
-  
-  if (isLocalDb) {
-    // Return the mock profile with the updated data for local development
-    return {
-      id: 'mock-user-id',
-      ...profileData,
-      updated_at: new Date().toISOString(),
-    } as RunnerProfile;
-  }
-
-  const supabase = createServerSupabaseClient();
-  
-  // Get the current session
-  const { data: { session } } = await supabase.auth.getSession();
-  
-  if (!session) {
-    redirect('/auth');
-  }
-  
-  // Update the profile
-  const { data, error } = await supabase
-    .from('runner_profiles')
-    .update(profileData)
-    .eq('id', session.user.id)
-    .select()
-    .single();
+export const updateRunnerProfile = withCsrf(async function updateRunnerProfileImpl(formData: FormData) {
+  try {
+    const supabase = await createClient();
     
-  if (error) {
-    throw new Error(`Error updating runner profile: ${error.message}`);
+    // Check if user is authenticated
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      return {
+        success: false,
+        error: 'Authentication required'
+      };
+    }
+    
+    // Extract profile data from form
+    const profileData = {
+      first_name: formData.get('first_name') as string,
+      last_name: formData.get('last_name') as string,
+      date_of_birth: formData.get('date_of_birth') as string,
+      gender: formData.get('gender') as string,
+      phone: formData.get('phone') as string,
+      address: formData.get('address') as string,
+      city: formData.get('city') as string,
+      state: formData.get('state') as string,
+      postal_code: formData.get('postal_code') as string,
+      country: formData.get('country') as string,
+      emergency_contact_name: formData.get('emergency_contact_name') as string,
+      emergency_contact_phone: formData.get('emergency_contact_phone') as string,
+      emergency_contact_relationship: formData.get('emergency_contact_relationship') as string,
+      medical_conditions: formData.get('medical_conditions') as string,
+      updated_at: new Date().toISOString()
+    };
+    
+    // Validate required fields
+    if (!profileData.first_name || !profileData.last_name) {
+      return {
+        success: false,
+        error: 'Name is required'
+      };
+    }
+    
+    // Update profile in database
+    const { error } = await supabase
+      .from('runner_profiles')
+      .upsert({
+        id: session.user.id,
+        ...profileData
+      }, {
+        onConflict: 'id'
+      });
+    
+    if (error) {
+      throw error;
+    }
+    
+    // Revalidate the profile page
+    revalidatePath('/dashboard/profile');
+    
+    return {
+      success: true,
+      message: 'Profile updated successfully'
+    };
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    return {
+      success: false,
+      error: 'An error occurred while updating your profile'
+    };
   }
-  
-  // Revalidate the profile page
-  revalidatePath('/dashboard/profile');
-  
-  return data;
-}
+});
 
 /**
  * Upload a profile image to Supabase storage

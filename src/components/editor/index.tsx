@@ -28,7 +28,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { ImageUpload } from '@/components/image-upload'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/use-toast'
 
 interface EditorProps {
@@ -92,7 +92,7 @@ const LinkDialog = ({ editor, open, onOpenChange }: LinkDialogProps) => {
 }
 
 const ImageDialog = ({ editor, open, onOpenChange }: ImageDialogProps) => {
-  const supabase = createClientComponentClient()
+  const supabase = createClient()
   const { toast } = useToast()
   const [isUploading, setIsUploading] = useState(false)
 

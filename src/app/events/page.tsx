@@ -2,8 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase/server';
 import { formatDate } from '@/lib/utils';
 
 // Mock events for when no real data is available
@@ -42,7 +41,7 @@ export default async function EventsPage() {
   let events = [];
   
   try {
-    const supabase = createServerComponentClient({ cookies });
+    const supabase = await createClient();
     const { data, error } = await supabase
       .from('events')
       .select('*')

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit, Trash2, Calendar, DollarSign, Tag, Check, X } from 'lucide-react'
 import { format, isAfter, isBefore } from 'date-fns'
@@ -74,7 +74,7 @@ export function TicketManager({ eventId, eventCapacity, initialTickets }: Ticket
   const [currentTicket, setCurrentTicket] = useState<Ticket | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  const supabase = createClientComponentClient();
+  const supabase = createClient();
   const router = useRouter();
 
   // Form for adding/editing tickets

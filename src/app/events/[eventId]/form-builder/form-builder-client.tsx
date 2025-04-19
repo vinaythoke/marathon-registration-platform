@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from '@/components/ui/use-toast'
 import { FormSchema } from '@/types/form-builder'
 import { FormBuilder } from '@/components/form-builder'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createClient } from '@/lib/supabase/client'
 import { v4 as uuidv4 } from 'uuid'
 
 interface FormBuilderClientProps {
@@ -15,7 +15,7 @@ interface FormBuilderClientProps {
 
 export function FormBuilderClient({ eventId, initialSchema }: FormBuilderClientProps) {
   const router = useRouter()
-  const supabase = createClientComponentClient()
+  const supabase = createClient()
   const [saving, setSaving] = useState(false)
 
   const handleSaveForm = async (schema: FormSchema) => {

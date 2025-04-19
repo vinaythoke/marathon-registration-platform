@@ -1,4 +1,4 @@
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
@@ -18,7 +18,7 @@ export default async function ProfilePage({
 }: {
   searchParams: { tab?: string };
 }) {
-  const supabase = createServerComponentClient({ cookies });
+  const supabase = await createClient();
   
   // Check if user is authenticated
   const { data: { session } } = await supabase.auth.getSession();

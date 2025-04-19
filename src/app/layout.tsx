@@ -2,12 +2,13 @@ import '@/styles/globals.css';
 // Using dynamic import instead of next/font to be compatible with Babel
 // import { Inter } from 'next/font/google';
 import { cookies } from 'next/headers';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@/lib/supabase/server';
 
 import { ThemeProvider } from '@/components/providers/theme-provider';
 import { OfflineProvider } from '@/context/OfflineContext';
 import { OfflineBanner } from '@/components/ui/offline-banner';
 import { SiteHeader } from '@/components/navigation/site-header';
+import { NProgressProvider } from '@/components/providers/nprogress-provider';
 
 // Font handled via CSS instead of next/font
 // const inter = Inter({ subsets: ['latin'] });
@@ -22,10 +23,12 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = createServerComponentClient({ cookies });
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  // Create Supabase client with explicit await to ensure it's fully resolved
+  const supabase = await createClient();
+  
+  // Get session data if available
+  const sessionResponse = await supabase.auth.getSession();
+  const session = sessionResponse.data.session;
 
   return (
     <html lang="en">
@@ -40,13 +43,15 @@ export default async function RootLayout({
       </head>
       <body className="font-inter">
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
-          <OfflineProvider>
-            <SiteHeader />
-            <main className="min-h-screen">
-              {children}
-            </main>
-            <OfflineBanner />
-          </OfflineProvider>
+          <NProgressProvider>
+            <OfflineProvider>
+              <SiteHeader />
+              <main className="min-h-screen">
+                {children}
+              </main>
+              <OfflineBanner />
+            </OfflineProvider>
+          </NProgressProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -36,8 +36,7 @@ export function AuthClientWrapper() {
         description: 'Successfully signed in!',
       });
 
-      router.push('/dashboard');
-      router.refresh();
+      router.replace('/dashboard');
     } else {
       const { error: signUpError, data: signUpData } = await supabase.auth.signUp({
         email,
@@ -54,30 +53,28 @@ export function AuthClientWrapper() {
         throw new Error(signUpError.message);
       }
 
-      // After sign up, create user profile
-      if (signUpData.user) {
-        const { error: profileError } = await supabase
-          .from('users')
-          .insert({
-            id: signUpData.user.id,
-            auth_id: signUpData.user.id,
-            email: signUpData.user.email as string,
-            first_name: 'New',
-            last_name: 'User',
-            role: roleParam || 'runner',
-          });
-
-        if (profileError) {
-          console.error('Error creating user profile:', profileError);
+      try {
+        if (signUpData.user) {
+          await supabase
+            .from('users')
+            .insert({
+              id: signUpData.user.id,
+              auth_id: signUpData.user.id,
+              email: signUpData.user.email as string,
+              first_name: 'New',
+              last_name: 'User',
+              role: roleParam || 'runner',
+            });
         }
+      } catch (profileError) {
+        console.error('Error creating user profile:', profileError);
       }
 
       toast({
-        title: 'Success',
-        description: 'Registration successful! Please check your email to verify your account.',
+        title: 'Registration Successful',
+        description: 'Please check your email to verify your account.',
       });
 
-      // Switch back to login mode after successful registration
       setAuthMode('login');
     }
   };

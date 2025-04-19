@@ -1,10 +1,8 @@
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
+import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
-  const res = NextResponse.next();
-  
   // Check if we're using local DB
   const isLocalDb = process.env.IS_LOCAL_DB === 'true';
   
@@ -21,58 +19,78 @@ export async function middleware(request: NextRequest) {
     }
     
     // In local dev mode, allow access to all routes
-    return res;
+    return NextResponse.next();
   }
   
   // For Supabase mode, use normal auth flow
-  try {
-    const supabase = createMiddlewareClient({ req: request, res });
+  let supabaseResponse = NextResponse.next({
+    request,
+  });
 
-    // Refresh session if expired - required for Server Components
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value));
+          supabaseResponse = NextResponse.next({
+            request,
+          });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          );
+        },
+      },
+    }
+  );
 
-    // Get URL info
-    const { pathname } = request.nextUrl;
+  // IMPORTANT: DO NOT REMOVE auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-    // If user is signed in and tries to access auth page, redirect to dashboard
-    if (session && pathname.startsWith('/auth')) {
+  // Get URL info
+  const { pathname } = request.nextUrl;
+
+  // If user is signed in and tries to access auth page, redirect to dashboard
+  if (user && pathname.startsWith('/auth')) {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = '/dashboard';
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  // Protected routes that require authentication
+  const protectedRoutes = ['/dashboard', '/events/create', '/profile'];
+  const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));
+
+  if (!user && isProtectedRoute) {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = '/auth';
+    redirectUrl.searchParams.set('redirectTo', pathname);
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  // Check role-based access for event creation
+  if (user && pathname.startsWith('/events/create')) {
+    const { data: userData } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    if (!userData || userData.role !== 'organizer') {
       const redirectUrl = request.nextUrl.clone();
       redirectUrl.pathname = '/dashboard';
       return NextResponse.redirect(redirectUrl);
     }
-
-    // Protected routes that require authentication
-    const protectedRoutes = ['/dashboard', '/events/create', '/profile'];
-    const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));
-
-    if (!session && isProtectedRoute) {
-      const redirectUrl = request.nextUrl.clone();
-      redirectUrl.pathname = '/auth';
-      redirectUrl.searchParams.set('redirectTo', pathname);
-      return NextResponse.redirect(redirectUrl);
-    }
-
-    // Check role-based access for event creation
-    if (session && pathname.startsWith('/events/create')) {
-      const { data: user } = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', session.user.id)
-        .single();
-
-      if (!user || user.role !== 'organizer') {
-        const redirectUrl = request.nextUrl.clone();
-        redirectUrl.pathname = '/dashboard';
-        return NextResponse.redirect(redirectUrl);
-      }
-    }
-  } catch (error) {
-    console.error('Middleware error:', error);
   }
 
-  return res;
+  // IMPORTANT: You *must* return the supabaseResponse object as it is.
+  return supabaseResponse;
 }
 
 // Configure matcher to run middleware on specific paths

@@ -1,4 +1,4 @@
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
@@ -8,11 +8,38 @@ interface RouteParams {
   };
 }
 
+// Helper function to create Supabase client
+const createSupabaseClient = () => {
+  const cookieStore = cookies();
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {
+            // The `setAll` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing
+            // user sessions.
+          }
+        },
+      },
+    }
+  );
+};
+
 // Get a specific note
 export async function GET(request: Request, { params }: RouteParams) {
   try {
     const { id } = params;
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = createSupabaseClient();
     
     // Check if user is authenticated
     const { data: { session } } = await supabase.auth.getSession();
@@ -53,7 +80,7 @@ export async function GET(request: Request, { params }: RouteParams) {
 export async function PATCH(request: Request, { params }: RouteParams) {
   try {
     const { id } = params;
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = createSupabaseClient();
     
     // Check if user is authenticated
     const { data: { session } } = await supabase.auth.getSession();
@@ -120,7 +147,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 export async function DELETE(request: Request, { params }: RouteParams) {
   try {
     const { id } = params;
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = createSupabaseClient();
     
     // Check if user is authenticated
     const { data: { session } } = await supabase.auth.getSession();

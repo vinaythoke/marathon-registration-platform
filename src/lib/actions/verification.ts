@@ -1,8 +1,8 @@
 'use server';
 
 import { cookies } from 'next/headers';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
 import { revalidatePath } from 'next/cache';
+import { createClient } from '@/lib/supabase/server';
 
 import { 
   secureIDVerify, 
@@ -16,7 +16,7 @@ import {
  */
 export async function verifyAadhaar(formData: FormData) {
   try {
-    const supabase = createServerComponentClient({ cookies });
+    const supabase = await createClient();
     
     // Check if user is authenticated
     const { data: { session } } = await supabase.auth.getSession();
@@ -91,7 +91,7 @@ export async function verifyAadhaar(formData: FormData) {
  */
 export async function getUserVerificationStatus() {
   try {
-    const supabase = createServerComponentClient({ cookies });
+    const supabase = await createClient();
     
     // Check if user is authenticated
     const { data: { session } } = await supabase.auth.getSession();

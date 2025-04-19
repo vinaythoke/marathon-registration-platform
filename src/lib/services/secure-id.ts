@@ -3,9 +3,9 @@
  * Handles integration with SecureID API for Aadhaar verification
  */
 
-import { createClient } from '@supabase/supabase-js';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
+import { createClient as createServerClient } from '@/lib/supabase/server';
 
 // Types for API responses and requests
 export interface SecureIDVerificationRequest {
@@ -123,7 +123,7 @@ export async function saveVerificationResult(
   metadata?: Record<string, any>
 ): Promise<boolean> {
   try {
-    const supabase = createClient(
+    const supabase = createSupabaseClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
@@ -160,7 +160,7 @@ export async function saveVerificationResult(
  */
 export async function getVerificationStatus(userId: string, type: 'aadhaar' | 'email' | 'phone' = 'aadhaar') {
   try {
-    const supabase = createClient(
+    const supabase = createSupabaseClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
