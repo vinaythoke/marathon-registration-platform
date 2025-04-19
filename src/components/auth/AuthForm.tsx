@@ -1,11 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
-import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -32,14 +31,18 @@ type AuthFormData = z.infer<typeof authSchema>;
 
 interface AuthFormProps {
   type: 'login' | 'register';
-  onSubmit: (data: AuthFormData) => Promise<void>;
-  onToggleMode?: () => void;
 }
 
-export function AuthForm({ type, onSubmit, onToggleMode }: AuthFormProps) {
+export function AuthForm({ type }: AuthFormProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  
+  // Fix hydration issues by only rendering after component mounts
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   
   const {
     register,
@@ -47,12 +50,48 @@ export function AuthForm({ type, onSubmit, onToggleMode }: AuthFormProps) {
     formState: { errors },
   } = useForm<AuthFormData>({
     resolver: zodResolver(authSchema),
+    defaultValues: {
+      email: '',
+      password: '',
+      confirmPassword: '',
+    }
   });
 
-  const onFormSubmit = async (data: AuthFormData) => {
+  const onSubmit = async (data: AuthFormData) => {
     try {
       setIsLoading(true);
-      await onSubmit(data);
+      
+      let result;
+      if (type === 'login') {
+        result = await signIn({
+          email: data.email,
+          password: data.password
+        });
+      } else {
+        result = await signUp({
+          email: data.email,
+          password: data.password,
+          firstName: '',
+          lastName: ''
+        });
+      }
+      
+      if (result.success) {
+        toast({
+          title: type === 'login' ? 'Signed in' : 'Account created',
+          description: type === 'login' 
+            ? 'You have been signed in successfully.' 
+            : 'Your account has been created. Please check your email for verification.',
+        });
+        router.push('/dashboard');
+        router.refresh();
+      } else {
+        toast({
+          title: 'Error',
+          description: result.error || 'An error occurred',
+          variant: 'destructive',
+        });
+      }
     } catch (error) {
       toast({
         title: 'Error',
@@ -85,6 +124,15 @@ export function AuthForm({ type, onSubmit, onToggleMode }: AuthFormProps) {
       setIsLoading(false);
     }
   };
+  
+  const toggleMode = () => {
+    router.push(type === 'login' ? '/auth/register' : '/auth/login');
+  };
+
+  // Don't render until client-side to prevent hydration mismatch
+  if (!mounted) {
+    return null;
+  }
 
   return (
     <div className="space-y-6 w-full max-w-[350px]">
@@ -99,7 +147,7 @@ export function AuthForm({ type, onSubmit, onToggleMode }: AuthFormProps) {
         </div>
       )}
       
-      <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
           <Input
@@ -155,19 +203,17 @@ export function AuthForm({ type, onSubmit, onToggleMode }: AuthFormProps) {
           )}
         </Button>
 
-        {onToggleMode && (
-          <Button
-            type="button"
-            variant="ghost"
-            className="w-full mt-2"
-            onClick={onToggleMode}
-            disabled={isLoading}
-          >
-            {type === 'login'
-              ? "Don't have an account? Sign up"
-              : 'Already have an account? Sign in'}
-          </Button>
-        )}
+        <Button
+          type="button"
+          variant="ghost"
+          className="w-full mt-2"
+          onClick={toggleMode}
+          disabled={isLoading}
+        >
+          {type === 'login'
+            ? "Don't have an account? Sign up"
+            : 'Already have an account? Sign in'}
+        </Button>
       </form>
 
       {type === 'login' && (

@@ -9,7 +9,9 @@ export default function RegisterPage() {
             Create your account
           </h2>
         </div>
-        <AuthForm type="register" />
+        <div className="flex justify-center">
+          <AuthForm type="register" />
+        </div>
       </div>
     </div>
   );

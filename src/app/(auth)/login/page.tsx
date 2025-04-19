@@ -9,7 +9,9 @@ export default function LoginPage() {
             Sign in to your account
           </h2>
         </div>
-        <AuthForm type="login" />
+        <div className="flex justify-center">
+          <AuthForm type="login" />
+        </div>
       </div>
     </div>
   );
