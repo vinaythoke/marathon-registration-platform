@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 import { VolunteerAssignment } from '@/types/volunteer';
 
 export function useVolunteerRealTimeUpdates(
@@ -12,6 +12,8 @@ export function useVolunteerRealTimeUpdates(
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const supabase = createClient();
+    
     const channel = supabase
       .channel(`volunteer-assignments-${eventId}`)
       .on(

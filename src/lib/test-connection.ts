@@ -1,7 +1,10 @@
-import { supabase } from './supabase';
+'use client';
+
+import { createClient } from './supabase/client';
 
 export async function testSupabaseConnection() {
   try {
+    const supabase = createClient();
     const { data, error } = await supabase
       .from('profiles')
       .select('count')

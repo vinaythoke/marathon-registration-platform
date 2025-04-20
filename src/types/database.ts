@@ -1,35 +1,91 @@
 import { Database as SupabaseDatabase, Json } from '@/database.types';
 
-// Re-export types from the main database types for easier access
-export type Event = SupabaseDatabase['public']['Tables']['events']['Row'];
-export type Registration = SupabaseDatabase['public']['Tables']['registrations']['Row'];
-export type RunnerProfile = SupabaseDatabase['public']['Tables']['runner_profiles']['Row'];
-export type User = SupabaseDatabase['public']['Tables']['profiles']['Row'];
+// Base types from Supabase tables
+export type EventBase = SupabaseDatabase['public']['Tables']['events']['Row'];
+export type RegistrationBase = SupabaseDatabase['public']['Tables']['registrations']['Row'];
+export type RunnerProfileBase = SupabaseDatabase['public']['Tables']['runner_profiles']['Row'];
 export type TicketBase = SupabaseDatabase['public']['Tables']['tickets']['Row'];
 
 // Export the Ticket type with additional fields needed for the UI
 export interface Ticket {
   id: string;
+  ticket_type_id: string;
+  registration_id: string;
+  order_id: string;
+  price_paid: number;
+  status: 'valid' | 'used' | 'cancelled' | 'refunded';
+  check_in_time?: string;
+  transfer_history?: {
+    from_user_id: string;
+    to_user_id: string;
+    timestamp: string;
+    notes?: string;
+  }[];
+  metadata?: Json;
+  created_at: string;
+  updated_at: string;
+}
+
+// Export the TicketType interface for ticket type management
+export interface TicketType {
+  id: string;
   event_id: string;
   name: string;
-  description: string;
-  price: number;
-  quantity: number;
-  max_per_user: number;
-  status: 'active' | 'inactive';
+  description?: string;
+  type: 'regular' | 'early_bird' | 'vip' | 'group' | 'student';
+  base_price: number;
+  pricing_rules?: {
+    start_date?: string;
+    end_date?: string;
+    price: number;
+    quantity?: number;
+    min_purchase?: number;
+    max_purchase?: number;
+  }[];
+  quantity_total: number;
+  quantity_sold: number;
+  quantity_reserved: number;
+  status: 'active' | 'sold_out' | 'draft' | 'archived';
+  visibility_rules?: {
+    start_date?: string;
+    end_date?: string;
+    access_codes?: string[];
+    restricted_to?: string[];
+  };
+  features?: string[];
+  metadata?: Json;
   created_at: string;
-  available_quantity?: number; // Computed number of available tickets
-  features?: string[]; // Array of ticket features/benefits
+  updated_at: string;
 }
 
 // Extend ticket status type
-export type TicketStatus = 'active' | 'inactive' | 'sold_out';
+export type TicketStatus = 'active' | 'sold_out' | 'draft' | 'archived';
 
 // Extend registration status type
 export type RegistrationStatus = 'pending' | 'confirmed' | 'cancelled' | 'checked_in';
 
 // Payment status type
 export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'refunded';
+
+// Export extended types that include computed fields and relationships
+export interface Event extends EventBase {
+  tickets?: TicketType[];
+  registrations?: Registration[];
+}
+
+export interface Registration extends RegistrationBase {
+  runner?: RunnerProfile;
+  event?: Event;
+  tickets?: Ticket[];
+}
+
+// RunnerProfile extends the base type with optional relationships
+export interface RunnerProfile extends RunnerProfileBase {
+  registrations?: Registration[];
+}
+
+// Re-export types from the main database types for easier access
+export type User = SupabaseDatabase['public']['Tables']['profiles']['Row'];
 
 // Define a TicketWithEvent type to include event information with a ticket
 export interface TicketWithEvent extends Ticket {
@@ -112,4 +168,17 @@ export interface RunnerProfile {
   
   created_at: string;
   updated_at: string;
+}
+
+// Ticket related types
+export interface TicketOrder {
+  id: string;
+  user_id: string;
+  event_id: string;
+  status: string;
+  total_amount: number;
+  created_at: string;
+  updated_at: string;
+  tickets?: Ticket[];
+  event?: Event;
 } 

@@ -1,48 +1,28 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import { MainNav } from './main-nav';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
 
 export function SiteHeader() {
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { user, profile, loading, signOut } = useAuth();
   const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
 
   // Handle client-side mounting
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  useEffect(() => {
-    if (!mounted) return;
-    
-    async function checkAuthStatus() {
-      try {
-        const supabase = createClient();
-        const { data } = await supabase.auth.getSession();
-        setIsLoggedIn(!!data.session);
-      } catch (error) {
-        console.error('Error checking auth status:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    
-    checkAuthStatus();
-  }, [mounted]);
-
   const handleLogout = async () => {
     try {
-      const supabase = createClient();
-      await supabase.auth.signOut();
-      setIsLoggedIn(false);
-      window.location.href = '/';
+      await signOut();
+      router.push('/');
     } catch (error) {
       console.error('Error signing out:', error);
     }
@@ -69,12 +49,17 @@ export function SiteHeader() {
           Marathon Registration
         </Link>
 
-        {!isLoading && (
+        {!loading && (
           <div className="flex items-center gap-4">
-            {isLoggedIn ? (
+            {user ? (
               <>
                 <MainNav />
                 <div className="ml-auto flex items-center space-x-4">
+                  {profile && (
+                    <span className="text-sm text-muted-foreground">
+                      Welcome, {profile.first_name}
+                    </span>
+                  )}
                   <Link href="/dashboard">
                     <Button variant="ghost">Dashboard</Button>
                   </Link>
@@ -82,7 +67,7 @@ export function SiteHeader() {
                     variant="outline"
                     onClick={handleLogout}
                   >
-                    Logout
+                    Sign Out
                   </Button>
                 </div>
               </>

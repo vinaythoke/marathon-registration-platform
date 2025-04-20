@@ -7,10 +7,12 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertCircle, ArrowLeft, CreditCard, Loader2 } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
-import { createPaymentOrder, PaymentData } from "@/lib/services/payment-service";
+import { AlertCircle, ArrowLeft, Loader2 } from "lucide-react";
+import { formatCurrencyValue } from "@/lib/utils";
+import { createPaymentOrder } from "@/lib/services/payment-service";
 import { loadCashfree, initializeCashfreeCheckout } from "@/lib/clients/cashfree-client";
+import PaymentMethodSelection from "@/components/payment/PaymentMethodSelection";
+import type { PaymentMethod } from "@/types/payment";
 
 export default function PaymentStep() {
   const router = useRouter();
@@ -25,6 +27,9 @@ export default function PaymentStep() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cashfreeLoaded, setCashfreeLoaded] = useState(false);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null);
+  const [isLoadingMethods, setIsLoadingMethods] = useState(true);
 
   useEffect(() => {
     const loadPaymentSDK = async () => {
@@ -32,13 +37,31 @@ export default function PaymentStep() {
         try {
           await loadCashfree();
           setCashfreeLoaded(true);
+          
+          // Fetch payment methods from API
+          const response = await fetch('/api/payments/methods', {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          if (!response.ok) {
+            throw new Error('Failed to fetch payment methods');
+          }
+          
+          const { methods } = await response.json();
+          setPaymentMethods(methods);
         } catch (error) {
-          console.error("Failed to load Cashfree SDK:", error);
+          console.error("Failed to load payment provider:", error);
           setError("Failed to load payment provider. Please try again.");
+        } finally {
+          setIsLoadingMethods(false);
         }
       } else {
         // Skip loading payment SDK for free tickets
         setCashfreeLoaded(true);
+        setIsLoadingMethods(false);
       }
     };
 
@@ -63,6 +86,11 @@ export default function PaymentStep() {
   }
 
   const handlePayment = async () => {
+    if (selectedTicket.price > 0 && !selectedMethodId) {
+      setError("Please select a payment method to continue");
+      return;
+    }
+
     setIsProcessing(true);
     setError(null);
 
@@ -82,7 +110,7 @@ export default function PaymentStep() {
       
       initializeCashfreeCheckout({
         sessionId: paymentData.paymentSessionId,
-        orderToken: paymentData.paymentSessionId, // Assuming sessionId contains the token
+        orderToken: paymentData.paymentSessionId,
         container: document.getElementById("payment-form-container"),
         onSuccess: (data: any) => {
           console.log("Payment success", data);
@@ -151,7 +179,7 @@ export default function PaymentStep() {
               <p className="font-semibold">
                 {selectedTicket.price === 0 
                   ? "Free" 
-                  : formatCurrency(selectedTicket.price)
+                  : formatCurrencyValue(selectedTicket.price, 'INR')
                 }
               </p>
             </div>
@@ -169,13 +197,30 @@ export default function PaymentStep() {
             <p>
               {selectedTicket.price === 0 
                 ? "Free" 
-                : formatCurrency(selectedTicket.price)
+                : formatCurrencyValue(selectedTicket.price, 'INR')
               }
             </p>
           </div>
           
+          {/* Payment method selection */}
+          {selectedTicket.price > 0 && (
+            <>
+              <Separator />
+              <div>
+                <h3 className="font-medium mb-4">Payment Method</h3>
+                <PaymentMethodSelection
+                  methods={paymentMethods}
+                  selectedMethodId={selectedMethodId}
+                  onMethodSelect={setSelectedMethodId}
+                  isLoading={isLoadingMethods}
+                  error={null}
+                />
+              </div>
+            </>
+          )}
+          
           {/* Payment form container */}
-          <div 
+          <div
             id="payment-form-container"
             className={`mt-6 border rounded-md p-4 min-h-[200px] ${isProcessing ? 'bg-gray-50' : ''}`}
           >
@@ -195,15 +240,19 @@ export default function PaymentStep() {
               </div>
             )}
             
-            {!isProcessing && selectedTicket.price > 0 && cashfreeLoaded && (
+            {!isProcessing && selectedTicket.price > 0 && cashfreeLoaded && !selectedMethodId && (
               <div className="flex flex-col items-center justify-center space-y-4 py-10">
-                <CreditCard className="h-12 w-12 text-primary" />
-                <div className="text-center">
-                  <p className="font-medium">Ready to complete your registration</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Click "Process Payment" below to proceed to the secure payment screen.
-                  </p>
-                </div>
+                <p className="text-center text-muted-foreground">
+                  Please select a payment method above to continue
+                </p>
+              </div>
+            )}
+            
+            {!isProcessing && selectedTicket.price > 0 && cashfreeLoaded && selectedMethodId && (
+              <div className="flex flex-col items-center justify-center space-y-4 py-10">
+                <p className="text-center">
+                  Click "Process Payment" below to complete your payment
+                </p>
               </div>
             )}
           </div>
@@ -219,7 +268,7 @@ export default function PaymentStep() {
           
           <Button 
             onClick={handlePayment}
-            disabled={isProcessing || !cashfreeLoaded}
+            disabled={isProcessing || (selectedTicket.price > 0 && (!cashfreeLoaded || !selectedMethodId))}
             className="gap-2"
           >
             {isProcessing ? (

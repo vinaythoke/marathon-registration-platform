@@ -1,101 +1,100 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/components/ui/use-toast';
-import { ArrowRight, Loader2 } from 'lucide-react';
 import { signIn, signUp, googleSignIn } from '@/lib/auth';
+import { Loader2 } from 'lucide-react';
 
-// Form validation schema
-const authSchema = z.object({
+const formSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
   confirmPassword: z.string().optional(),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+  role: z.enum(['runner', 'organizer', 'volunteer']).optional(),
 }).refine((data) => {
-  if (data.confirmPassword) {
+  if (data.confirmPassword !== undefined) {
     return data.password === data.confirmPassword;
   }
   return true;
 }, {
   message: "Passwords don't match",
-  path: ["confirmPassword"],
+  path: ['confirmPassword'],
 });
 
-type AuthFormData = z.infer<typeof authSchema>;
+type FormData = z.infer<typeof formSchema>;
 
 interface AuthFormProps {
   type: 'login' | 'register';
 }
 
 export function AuthForm({ type }: AuthFormProps) {
-  const router = useRouter();
-  const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  
-  // Fix hydration issues by only rendering after component mounts
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-  
+  const { toast } = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get('redirectTo');
+  const preselectedRole = searchParams.get('role');
+
   const {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<AuthFormData>({
-    resolver: zodResolver(authSchema),
+    reset,
+    setValue
+  } = useForm<FormData>({
+    resolver: zodResolver(formSchema),
+    mode: 'onSubmit',
+    reValidateMode: 'onSubmit',
     defaultValues: {
-      email: '',
-      password: '',
-      confirmPassword: '',
+      role: (preselectedRole as 'runner' | 'organizer' | 'volunteer') || undefined
     }
   });
 
-  const onSubmit = async (data: AuthFormData) => {
+  useEffect(() => {
+    if (preselectedRole && type === 'register') {
+      setValue('role', preselectedRole as 'runner' | 'organizer' | 'volunteer');
+    }
+  }, [preselectedRole, type, setValue]);
+
+  const onSubmit = async (data: FormData) => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      
-      let result;
       if (type === 'login') {
-        result = await signIn({
-          email: data.email,
-          password: data.password
+        await signIn({ email: data.email, password: data.password });
+        toast({
+          title: 'Success',
+          description: 'You have been signed in successfully.',
+          variant: 'default',
         });
+        router.push(redirectTo || '/dashboard');
       } else {
-        result = await signUp({
+        if (!data.firstName || !data.lastName || !data.role) {
+          throw new Error('Please fill in all required fields');
+        }
+        await signUp({
           email: data.email,
           password: data.password,
-          firstName: '',
-          lastName: ''
+          firstName: data.firstName,
+          lastName: data.lastName,
+          role: data.role,
         });
-      }
-      
-      if (result.success) {
         toast({
-          title: type === 'login' ? 'Signed in' : 'Account created',
-          description: type === 'login' 
-            ? 'You have been signed in successfully.' 
-            : 'Your account has been created. Please check your email for verification.',
+          title: 'Success',
+          description: 'Your account has been created successfully.',
+          variant: 'default',
         });
-        router.push('/dashboard');
-        router.refresh();
-      } else {
-        toast({
-          title: 'Error',
-          description: result.error || 'An error occurred',
-          variant: 'destructive',
-        });
+        router.push(redirectTo || '/dashboard');
       }
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred. Please try again.';
       toast({
         title: 'Error',
-        description: error instanceof Error ? error.message : 'An error occurred',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
@@ -106,134 +105,157 @@ export function AuthForm({ type }: AuthFormProps) {
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     try {
-      const result = await googleSignIn();
-      if (!result.success) {
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: result.error
-        });
-      }
-    } catch (error) {
+      await googleSignIn();
       toast({
-        variant: 'destructive',
+        title: 'Success',
+        description: 'You have been signed in successfully with Google.',
+        variant: 'default',
+      });
+      router.push(redirectTo || '/dashboard');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred. Please try again.';
+      toast({
         title: 'Error',
-        description: 'Failed to connect to Google'
+        description: errorMessage,
+        variant: 'destructive',
       });
     } finally {
       setIsLoading(false);
     }
   };
-  
-  const toggleMode = () => {
-    router.push(type === 'login' ? '/auth/register' : '/auth/login');
-  };
-
-  // Don't render until client-side to prevent hydration mismatch
-  if (!mounted) {
-    return null;
-  }
 
   return (
-    <div className="space-y-6 w-full max-w-[350px]">
-      {isLoading && (
-        <div className="fixed inset-0 bg-background/80 flex items-center justify-center z-50">
-          <div className="bg-card p-6 rounded-lg shadow-lg flex flex-col items-center space-y-4 w-[280px] max-w-[90vw]">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-sm font-medium">
-              {type === 'login' ? 'Signing in...' : 'Creating account...'}
-            </p>
-          </div>
-        </div>
-      )}
-      
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
-          <Input
-            id="email"
-            type="email"
-            placeholder="Enter your email"
-            {...register('email')}
-            disabled={isLoading}
-          />
-          {errors.email && (
-            <p className="text-sm text-red-500">{errors.email.message}</p>
-          )}
-        </div>
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      <div>
+        <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+          Email
+        </label>
+        <input
+          id="email"
+          type="email"
+          aria-label="Email"
+          {...register('email')}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        />
+        {errors.email && (
+          <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
+        )}
+      </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
-          <Input
-            id="password"
-            type="password"
-            placeholder="Enter your password"
-            {...register('password')}
-            disabled={isLoading}
-          />
-          {errors.password && (
-            <p className="text-sm text-red-500">{errors.password.message}</p>
-          )}
-        </div>
+      <div>
+        <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+          Password
+        </label>
+        <input
+          id="password"
+          type="password"
+          aria-label="Password"
+          {...register('password')}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        />
+        {errors.password && (
+          <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>
+        )}
+      </div>
 
-        {type === 'register' && (
-          <div className="space-y-2">
-            <Label htmlFor="confirmPassword">Confirm Password</Label>
-            <Input
+      {type === 'register' && (
+        <>
+          <div>
+            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
+              Confirm Password
+            </label>
+            <input
               id="confirmPassword"
               type="password"
-              placeholder="Confirm your password"
+              aria-label="Confirm password"
               {...register('confirmPassword')}
-              disabled={isLoading}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
             />
             {errors.confirmPassword && (
-              <p className="text-sm text-red-500">{errors.confirmPassword.message}</p>
+              <p className="mt-1 text-sm text-red-600">{errors.confirmPassword.message}</p>
             )}
           </div>
-        )}
 
-        <Button type="submit" className="w-full" disabled={isLoading}>
-          {isLoading ? (
-            <span className="flex items-center justify-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {type === 'login' ? 'Signing in...' : 'Creating account...'}
-            </span>
-          ) : (
-            type === 'login' ? 'Sign In' : 'Create Account'
-          )}
-        </Button>
+          <div>
+            <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">
+              First Name
+            </label>
+            <input
+              id="firstName"
+              type="text"
+              aria-label="First name"
+              {...register('firstName')}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+            />
+          </div>
 
-        <Button
-          type="button"
-          variant="ghost"
-          className="w-full mt-2"
-          onClick={toggleMode}
-          disabled={isLoading}
-        >
-          {type === 'login'
-            ? "Don't have an account? Sign up"
-            : 'Already have an account? Sign in'}
-        </Button>
-      </form>
+          <div>
+            <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">
+              Last Name
+            </label>
+            <input
+              id="lastName"
+              type="text"
+              aria-label="Last name"
+              {...register('lastName')}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+            />
+          </div>
 
-      {type === 'login' && (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleGoogleSignIn}
-          disabled={isLoading}
-          className="w-full"
-        >
-          {isLoading ? (
-            <span className="flex items-center justify-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Connecting to Google...
-            </span>
-          ) : (
-            "Continue with Google"
-          )}
-        </Button>
+          <div>
+            <label htmlFor="role" className="block text-sm font-medium text-gray-700">
+              Select role
+            </label>
+            <select
+              id="role"
+              aria-label="Select role"
+              {...register('role')}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+            >
+              <option value="">Select a role</option>
+              <option value="runner">Runner</option>
+              <option value="organizer">Organizer</option>
+              <option value="volunteer">Volunteer</option>
+            </select>
+          </div>
+        </>
       )}
-    </div>
+
+      <button
+        type="submit"
+        disabled={isLoading}
+        aria-label={type === 'login' ? 'Sign in' : 'Create account'}
+        className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+      >
+        {isLoading ? (
+          <>
+            <Loader2 className="animate-spin mr-2 h-4 w-4" />
+            {type === 'login' ? 'Signing in...' : 'Creating account...'}
+          </>
+        ) : (
+          type === 'login' ? 'Sign in' : 'Create account'
+        )}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => router.push(type === 'login' ? '/auth/register' : '/auth/login')}
+        disabled={isLoading}
+        aria-label={type === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+        className="w-full text-sm text-indigo-600 hover:text-indigo-500"
+      >
+        {type === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+      </button>
+
+      <button
+        type="button"
+        onClick={handleGoogleSignIn}
+        disabled={isLoading}
+        aria-label="Continue with Google"
+        className="w-full flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+      >
+        Continue with Google
+      </button>
+    </form>
   );
-} 
+}

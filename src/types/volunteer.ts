@@ -88,33 +88,52 @@ export interface TrainingCompletion {
   training?: VolunteerTraining;
 }
 
-// Race kit type
+// Race kit types
+export type RaceKitSize = 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL';
+export type RaceKitType = 'standard' | 'premium' | 'elite';
+export type RaceKitStatus = 'in_stock' | 'low_stock' | 'out_of_stock';
+
 export interface RaceKit {
-  id: string;
+  kit_id: string;
   event_id: string;
-  name: string;
-  description?: string;
-  total_quantity: number;
-  distributed_quantity: number;
+  size: RaceKitSize;
+  quantity: number;
+  type: RaceKitType;
+  status: RaceKitStatus;
   created_at: string;
   updated_at: string;
-  
-  // Calculated fields
-  available_quantity?: number;
 }
 
-// Kit distribution record
-export interface KitDistribution {
-  id: string;
+export interface KitAssignment {
+  assignment_id: string;
   kit_id: string;
   registration_id: string;
-  distributed_by?: string;
-  distributed_at: string;
-  notes?: string;
-  
-  // Join fields
-  kit?: RaceKit;
-  distributor?: Profile;
+  pickup_status: PickupStatus;
+  assigned_at: string;
+  picked_up_at: string | null;
+  notes: string | null;
+}
+
+export interface RaceKitWithEvent extends RaceKit {
+  event: {
+    id: string;
+    title: string;
+    date: string;
+  };
+}
+
+export interface KitAssignmentWithDetails extends KitAssignment {
+  kit: RaceKit;
+  registration: {
+    id: string;
+    user_id: string;
+    event_id: string;
+    user: {
+      id: string;
+      full_name: string;
+      email: string;
+    };
+  };
 }
 
 // Combined volunteer with profile
@@ -161,4 +180,20 @@ export interface VolunteerDashboardStats {
   checked_in_volunteers: number;
   total_training_completions: number;
   kits_distributed: number;
+}
+
+export enum PickupStatus {
+  PICKED_UP = "PICKED_UP",
+  READY = "READY",
+  PENDING = "PENDING"
+}
+
+export interface KitDistribution {
+  id: string;
+  kit?: RaceKit;
+  status: PickupStatus;
+  pickup_date?: string;
+  pickup_time?: string;
+  pickup_location?: string;
+  notes?: string;
 } 

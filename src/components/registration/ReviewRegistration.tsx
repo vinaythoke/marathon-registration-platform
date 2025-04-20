@@ -14,7 +14,8 @@ export default function ReviewRegistration() {
     selectedTicket, 
     formData,
     setCurrentStep, 
-    validateCurrentStep
+    validateCurrentStep,
+    selectedQuantity
   } = useRegistration();
 
   if (!event || !selectedTicket) {
@@ -77,11 +78,15 @@ export default function ReviewRegistration() {
             <p>{selectedTicket.name}</p>
           </div>
           <div>
+            <h3 className="font-medium">Quantity</h3>
+            <p>{selectedQuantity} ticket{selectedQuantity > 1 ? 's' : ''}</p>
+          </div>
+          <div>
             <h3 className="font-medium">Price</h3>
             <p className="text-lg font-semibold">
-              {selectedTicket.price === 0 
+              {selectedTicket.base_price === 0 
                 ? "Free" 
-                : formatCurrency(selectedTicket.price)
+                : `${formatCurrency(selectedTicket.base_price)} × ${selectedQuantity} = ${formatCurrency(selectedTicket.base_price * selectedQuantity)}`
               }
             </p>
           </div>
@@ -127,7 +132,7 @@ export default function ReviewRegistration() {
           onClick={handleContinue}
           className="gap-2"
         >
-          {selectedTicket.price === 0 ? "Complete Registration" : "Proceed to Payment"} <ChevronRight className="h-4 w-4" />
+          {selectedTicket.base_price === 0 ? "Complete Registration" : "Proceed to Payment"} <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
     </div>

@@ -106,9 +106,12 @@ export default async function RunnerDashboardPage() {
       .eq('auth_id', session.user.id)
       .single();
       
-    // Ensure user is a runner
+    // Ensure user is a runner - but don't redirect to dashboard to avoid loop
+    // Instead, show a message or handle differently
     if (profile?.role !== 'runner') {
-      redirect('/dashboard');
+      // Instead of redirect('/dashboard') which causes a loop,
+      // display an error or access denied message
+      throw new Error('Access denied. This page is only for runners.');
     }
     
     userName = profile ? `${profile.first_name} ${profile.last_name}` : '';

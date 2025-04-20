@@ -1,4 +1,4 @@
-import withPWA from 'next-pwa';
+const withPWA = require('next-pwa');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -60,9 +60,13 @@ const nextConfig = {
       },
     ];
   },
+  // Configure output caching to prevent excessive redirects
+  staticPageGenerationTimeout: 120,
+  // Configure which pages should be treated as dynamic routes
+  pageExtensions: ['js', 'jsx', 'ts', 'tsx'],
 };
 
-export default withPWA({
+module.exports = withPWA({
   dest: 'public',
   register: true,
   skipWaiting: true,

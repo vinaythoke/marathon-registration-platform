@@ -1,0 +1,260 @@
+<context>
+# Overview
+The Marathon Registration Platform is a Progressive Web Application (PWA) designed to revolutionize how marathon events are organized and participated in. It serves as a configurable, SaaS platform primarily for marathons, with the potential to expand to other sports events.
+
+The platform solves several key problems:
+- Complex event management for organizers
+- Fragmented registration processes for runners
+- Manual verification challenges
+- Decentralized volunteer management
+
+Target Users:
+1. Organizers: Event creators who need tools for event management, ticketing, and participant tracking
+   - Can only manage their own events
+   - Cannot participate in events as runners
+   - Focus on event creation and management
+   - Manage volunteer accounts for their events
+2. Runners: Athletes who register for events and need to manage their participation
+3. Volunteers: Event-day staff managing check-ins and race kit distribution
+4. Integration Partners: Payment and verification service providers
+
+# Core Features
+
+1. Event Management System
+   - No-code WYSIWYG event page editor
+   - Custom registration form builder
+   - Ticket type configuration with visibility rules
+   - Discount code generation and management
+   - Strict event visibility and access control:
+     - Organizers can only see and manage their own events
+     - Organizers cannot register for events
+     - Clear separation between organizer and runner roles
+
+2. Runner Experience
+   - Unified dashboard for event participation
+   - Digital ticket management
+   - Profile verification with Aadhaar
+   - Personal run statistics tracking
+
+3. Volunteer Management
+   - QR code-based runner verification
+   - Race kit distribution tracking
+   - Real-time check-in status updates
+   - Role-based access control
+   - Volunteer account management by organizers
+
+4. Payment and Verification
+   - CashFree integration for global payments
+   - SecureID integration for Aadhaar verification
+   - Secure payment processing
+   - Automated verification badges
+
+# User Experience
+
+User Personas:
+
+1. Event Organizer (Priya)
+   - Needs: Easy event creation, participant management
+   - Goals: Streamline registration, reduce manual work
+   - Pain Points: Complex setup, verification challenges
+   - Restrictions: Cannot participate in events, limited to managing own events
+
+2. Runner (Rahul)
+   - Needs: Easy registration, secure payments
+   - Goals: Track events, maintain running history
+   - Pain Points: Multiple platforms, document verification
+   - Restrictions: Cannot create or manage events
+
+3. Volunteer (Vikram)
+   - Needs: Quick runner verification, clear instructions
+   - Goals: Efficient check-in process
+   - Pain Points: Manual checks, offline access
+   - Management: Account created and managed by organizers
+
+Key Flows:
+- Event Creation → Publication → Registration → Check-in → Completion
+- Runner Registration → Payment → Verification → Event Day
+- Volunteer Assignment → Training → Check-in Management
+
+UI/UX Considerations:
+- Responsive design for all devices
+- Offline-first PWA functionality
+- Accessible components using Shadcn UI
+- Dark/light mode support
+- Clear role-based navigation and access control
+- Distinct interfaces for different user roles
+
+# Security and Access Control
+
+1. Role-Based Access Control (RBAC)
+   - Strict separation between organizer and runner roles
+   - No cross-role functionality allowed
+   - Event-specific permissions for organizers
+   - Volunteer management restricted to event organizers
+
+2. Event Access Control
+   - Organizers can only view and manage their own events
+   - Runners can view and register for any public event
+   - Volunteers have access only to assigned events
+
+3. Data Privacy
+   - User data segregation based on roles
+   - Event data visibility restrictions
+   - Secure handling of personal information
+</context>
+<PRD>
+# Technical Architecture
+
+1. Frontend Architecture (Next.js 13+)
+   - App Router Structure:
+     ```
+     /app
+     ├─ /(auth)              // Authentication layouts
+     ├─ /(dashboard)         // Protected dashboards
+     ├─ /api                 // API routes
+     └─ /events              // Public event pages
+     ```
+   - Component Architecture:
+     - Shadcn UI components (100% adoption across the application)
+     - Storybook documentation for core components (in progress)
+     - Server Components
+     - Client Components
+     - Strong TypeScript typing throughout
+
+2. Backend Architecture
+   - Hybrid Database Approach:
+     - Production: Supabase (PostgreSQL, Auth, Storage, Edge Functions)
+     - Development: Local Docker PostgreSQL with compatibility layer
+     - Environment-specific configuration via .env files
+     - Seamless switching between environments
+   - Authentication System
+   - Real-time Subscriptions
+   - Storage System
+   - Edge Functions
+
+3. Development Environment
+   - Docker-based local database for development
+   - Local PostgreSQL instance runs on port 54322
+   - PgAdmin interface accessible on port 5050
+   - Mock authentication for local development
+   - Test data seeding for common scenarios
+
+4. Data Models
+   - Events
+   - Users (Organizers, Runners, Volunteers)
+   - Tickets
+   - Registrations
+   - Verifications
+
+5. External Integrations
+   - CashFree API
+   - SecureID API
+   - Storage Providers
+   - Analytics Services
+
+# Development Roadmap
+
+Phase 1 (Foundation):
+- Next.js project setup with Shadcn UI
+- Basic authentication system
+- Event creation interface
+- Runner registration flow
+- Simple ticket management
+
+Phase 2 (Core Features):
+- Advanced event customization
+- Payment integration
+- Volunteer management system
+- QR code verification
+- Offline support
+
+Phase 3 (Enhancement):
+- Advanced analytics
+- Multi-language support
+- Performance optimizations
+- Additional sport types
+- Enhanced reporting
+
+# Logical Dependency Chain
+
+1. Foundation Layer:
+   - Project setup (Next.js, Shadcn UI)
+   - Authentication system
+   - Database schema
+   - Basic API structure
+
+2. Core Features Layer:
+   - Event management system
+   - User profiles and dashboards
+   - Registration system
+   - Payment integration
+
+3. Operational Layer:
+   - Volunteer management
+   - QR code system
+   - Verification flows
+   - Reporting tools
+
+4. Enhancement Layer:
+   - Analytics
+   - Performance optimizations
+   - Additional sports support
+   - Advanced customization
+
+# Risks and Mitigations
+
+Technical Challenges:
+1. Offline Functionality
+   - Risk: Data synchronization issues
+   - Mitigation: Robust PWA implementation, conflict resolution
+
+2. Payment Integration
+   - Risk: Transaction failures
+   - Mitigation: Failover systems, retry mechanisms
+
+3. Performance
+   - Risk: Slow page loads with complex forms
+   - Mitigation: Server Components, optimized builds
+
+4. Security
+   - Risk: Data breaches, unauthorized access
+   - Mitigation: Regular audits, security best practices
+
+Resource Constraints:
+1. Development Velocity
+   - Risk: Complex feature implementation
+   - Mitigation: Modular architecture, reusable components
+
+2. Scalability
+   - Risk: High concurrent users
+   - Mitigation: Edge functions, caching strategies
+
+# Appendix
+
+Technical Specifications:
+1. Frontend:
+   - React 18+
+   - Next.js 13+ (App Router)
+   - TypeScript
+   - Shadcn UI
+   - Storybook 7+
+   - PWA Support
+
+2. Backend:
+   - Supabase
+   - PostgreSQL
+   - Edge Functions
+   - Real-time Subscriptions
+
+3. Testing:
+   - Jest
+   - React Testing Library
+   - Chromatic
+   - E2E Testing
+
+4. Development Tools:
+   - ESLint
+   - Prettier
+   - Husky
+   - Commitlint
+</PRD> 

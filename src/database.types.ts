@@ -1,3 +1,5 @@
+import { PaymentStatus } from '@/types/payment';
+
 export type Json =
   | string
   | number
@@ -570,6 +572,101 @@ export interface Database {
             referencedColumns: ["id"];
           }
         ];
+      };
+      payments: {
+        Row: {
+          id: string;
+          registration_id: string;
+          order_id: string;
+          amount: number;
+          currency: string;
+          status: PaymentStatus;
+          payment_session_id?: string;
+          order_token?: string;
+          cf_order_id?: string;
+          transaction_data?: Json;
+          refund_data?: Json;
+          payment_method_id?: string;
+          billing_address?: Json;
+          shipping_address?: Json;
+          customer_notes?: string;
+          admin_notes?: string;
+          refund_reason?: string;
+          refund_amount?: number;
+          refund_status?: string;
+          refund_transaction_id?: string;
+          is_test: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['payments']['Row'], 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<Database['public']['Tables']['payments']['Row'], 'id' | 'created_at' | 'updated_at'>>;
+        Relationships: [
+          {
+            foreignKeyName: "payments_registration_id_fkey";
+            columns: ["registration_id"];
+            referencedRelation: "registrations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "payments_payment_method_id_fkey";
+            columns: ["payment_method_id"];
+            referencedRelation: "payment_methods";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      payment_methods: {
+        Row: {
+          id: string;
+          name: string;
+          display_name: string;
+          description?: string;
+          icon_url?: string;
+          is_enabled: boolean;
+          config?: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['payment_methods']['Row'], 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<Database['public']['Tables']['payment_methods']['Row'], 'id' | 'created_at' | 'updated_at'>>;
+      };
+      payment_transactions: {
+        Row: {
+          id: string;
+          payment_id: string;
+          transaction_type: string;
+          amount: number;
+          currency: string;
+          status: string;
+          gateway_transaction_id?: string;
+          gateway_response?: Json;
+          error_message?: string;
+          created_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['payment_transactions']['Row'], 'id' | 'created_at'>;
+        Update: Partial<Omit<Database['public']['Tables']['payment_transactions']['Row'], 'id' | 'created_at'>>;
+        Relationships: [
+          {
+            foreignKeyName: "payment_transactions_payment_id_fkey";
+            columns: ["payment_id"];
+            referencedRelation: "payments";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      payment_settings: {
+        Row: {
+          id: string;
+          setting_key: string;
+          setting_value: Json;
+          description?: string;
+          is_encrypted: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database['public']['Tables']['payment_settings']['Row'], 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<Database['public']['Tables']['payment_settings']['Row'], 'id' | 'created_at' | 'updated_at'>>;
       };
     };
   };

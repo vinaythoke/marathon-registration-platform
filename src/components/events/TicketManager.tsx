@@ -23,26 +23,55 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 
-// Define the ticket form schema for validation
+// Define the pricing rule schema
+const pricingRuleSchema = z.object({
+  start_date: z.date().optional(),
+  end_date: z.date().optional(),
+  price: z.coerce.number().min(0, 'Price must be 0 or greater'),
+  quantity: z.coerce.number().min(0, 'Quantity must be 0 or greater').optional(),
+  min_purchase: z.coerce.number().min(1, 'Minimum purchase must be at least 1').optional(),
+  max_purchase: z.coerce.number().min(1, 'Maximum purchase must be at least 1')
+    .optional()
+    .refine(
+      (val) => !val || val >= (pricingRuleSchema.shape.min_purchase.optional().parse(undefined) || 1),
+      'Maximum purchase must be greater than or equal to minimum purchase'
+    ),
+});
+
+// Update the ticket form schema
 const ticketFormSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   description: z.string().optional(),
-  price: z.coerce.number().min(0, 'Price must be 0 or greater'),
-  quantity: z.coerce.number().min(1, 'Quantity must be at least 1'),
-  max_per_user: z.coerce.number().min(1, 'Max per user must be at least 1'),
-  start_date: z.date({
-    required_error: "Start date is required",
-  }),
-  end_date: z.date({
-    required_error: "End date is required",
-  }).refine(
-    (date) => date > new Date(),
-    "End date must be in the future"
-  ),
+  type: z.enum(['regular', 'early_bird', 'vip', 'group', 'student']).default('regular'),
+  base_price: z.coerce.number().min(0, 'Base price must be 0 or greater'),
+  pricing_rules: z.array(pricingRuleSchema).optional(),
+  quantity_total: z.coerce.number().min(1, 'Quantity must be at least 1'),
+  quantity_sold: z.coerce.number().min(0, 'Quantity sold must be 0 or greater').default(0),
+  quantity_reserved: z.coerce.number().min(0, 'Reserved quantity must be 0 or greater').default(0),
   status: z.enum(['active', 'sold_out', 'disabled']),
-}).refine((data) => data.end_date > data.start_date, {
-  message: "End date must be after start date",
-  path: ["end_date"],
+  features: z.array(z.string()).optional(),
+  metadata: z.record(z.any()).optional(),
+}).refine((data) => {
+  if (data.pricing_rules?.length) {
+    // Ensure pricing rules don't overlap in dates
+    const sortedRules = [...data.pricing_rules].sort((a, b) => 
+      (a.start_date?.getTime() || 0) - (b.start_date?.getTime() || 0)
+    );
+    
+    for (let i = 0; i < sortedRules.length - 1; i++) {
+      const currentRule = sortedRules[i];
+      const nextRule = sortedRules[i + 1];
+      
+      if (currentRule.end_date && nextRule.start_date && 
+          currentRule.end_date > nextRule.start_date) {
+        return false;
+      }
+    }
+  }
+  return true;
+}, {
+  message: "Pricing rule dates cannot overlap",
+  path: ["pricing_rules"],
 });
 
 // Interface for the component props
@@ -83,9 +112,9 @@ export function TicketManager({ eventId, eventCapacity, initialTickets }: Ticket
     defaultValues: {
       name: '',
       description: '',
-      price: 0,
-      quantity: 0,
-      max_per_user: 1,
+      type: 'regular',
+      base_price: 0,
+      quantity_total: 0,
       status: 'active' as const,
     },
   });
@@ -103,8 +132,8 @@ export function TicketManager({ eventId, eventCapacity, initialTickets }: Ticket
       const ticketData = {
         ...values,
         event_id: eventId,
-        start_date: values.start_date.toISOString(),
-        end_date: values.end_date.toISOString(),
+        start_date: values.start_date?.toISOString() || '',
+        end_date: values.end_date?.toISOString() || '',
       };
       
       if (currentTicket?.id) {
@@ -201,11 +230,9 @@ export function TicketManager({ eventId, eventCapacity, initialTickets }: Ticket
     form.reset({
       name: ticket.name,
       description: ticket.description || '',
-      price: ticket.price,
-      quantity: ticket.quantity,
-      max_per_user: ticket.max_per_user,
-      start_date: new Date(ticket.start_date),
-      end_date: new Date(ticket.end_date),
+      type: 'regular',
+      base_price: ticket.price,
+      quantity_total: ticket.quantity,
       status: ticket.status,
     });
     setIsEditDialogOpen(true);
@@ -217,11 +244,9 @@ export function TicketManager({ eventId, eventCapacity, initialTickets }: Ticket
     form.reset({
       name: '',
       description: '',
-      price: 0,
-      quantity: 50,
-      max_per_user: 1,
-      start_date: new Date(),
-      end_date: new Date(new Date().setDate(new Date().getDate() + 30)),
+      type: 'regular',
+      base_price: 0,
+      quantity_total: 50,
       status: 'active',
     });
     setIsAddDialogOpen(true);
@@ -409,6 +434,8 @@ function TicketForm({ form, onSubmit, isSubmitting }: {
   onSubmit: (values: any) => Promise<void>;
   isSubmitting: boolean;
 }) {
+  const [showPricingRules, setShowPricingRules] = useState(false);
+  
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -443,14 +470,24 @@ function TicketForm({ form, onSubmit, isSubmitting }: {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField
             control={form.control}
-            name="price"
+            name="type"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Price (₹)</FormLabel>
-                <FormControl>
-                  <Input type="number" min="0" step="0.01" {...field} />
-                </FormControl>
-                <FormDescription>Enter 0 for free tickets</FormDescription>
+                <FormLabel>Ticket Type</FormLabel>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="regular">Regular</SelectItem>
+                    <SelectItem value="early_bird">Early Bird</SelectItem>
+                    <SelectItem value="vip">VIP</SelectItem>
+                    <SelectItem value="group">Group</SelectItem>
+                    <SelectItem value="student">Student</SelectItem>
+                  </SelectContent>
+                </Select>
                 <FormMessage />
               </FormItem>
             )}
@@ -458,30 +495,228 @@ function TicketForm({ form, onSubmit, isSubmitting }: {
           
           <FormField
             control={form.control}
-            name="quantity"
+            name="base_price"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Base Price (₹)</FormLabel>
+                <FormControl>
+                  <Input type="number" min="0" step="0.01" {...field} />
+                </FormControl>
+                <FormDescription>Base ticket price before any rules</FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-medium">Dynamic Pricing Rules</h4>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowPricingRules(!showPricingRules)}
+            >
+              {showPricingRules ? 'Hide Rules' : 'Show Rules'}
+            </Button>
+          </div>
+
+          {showPricingRules && (
+            <div className="space-y-4">
+              {form.watch('pricing_rules')?.map((rule: any, index: number) => (
+                <Card key={index}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base">Rule {index + 1}</CardTitle>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          const rules = form.getValues('pricing_rules');
+                          rules.splice(index, 1);
+                          form.setValue('pricing_rules', rules);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name={`pricing_rules.${index}.price`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Price (₹)</FormLabel>
+                            <FormControl>
+                              <Input type="number" min="0" step="0.01" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={form.control}
+                        name={`pricing_rules.${index}.quantity`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Quantity Limit (Optional)</FormLabel>
+                            <FormControl>
+                              <Input type="number" min="0" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={form.control}
+                        name={`pricing_rules.${index}.start_date`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Start Date (Optional)</FormLabel>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <FormControl>
+                                  <Button
+                                    variant="outline"
+                                    className={cn(
+                                      "w-full pl-3 text-left font-normal",
+                                      !field.value && "text-muted-foreground"
+                                    )}
+                                  >
+                                    {field.value ? (
+                                      format(field.value, "PPP")
+                                    ) : (
+                                      <span>Pick a date</span>
+                                    )}
+                                    <Calendar className="ml-auto h-4 w-4 opacity-50" />
+                                  </Button>
+                                </FormControl>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <CalendarComponent
+                                  mode="single"
+                                  selected={field.value}
+                                  onSelect={field.onChange}
+                                  initialFocus
+                                />
+                              </PopoverContent>
+                            </Popover>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={form.control}
+                        name={`pricing_rules.${index}.end_date`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>End Date (Optional)</FormLabel>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <FormControl>
+                                  <Button
+                                    variant="outline"
+                                    className={cn(
+                                      "w-full pl-3 text-left font-normal",
+                                      !field.value && "text-muted-foreground"
+                                    )}
+                                  >
+                                    {field.value ? (
+                                      format(field.value, "PPP")
+                                    ) : (
+                                      <span>Pick a date</span>
+                                    )}
+                                    <Calendar className="ml-auto h-4 w-4 opacity-50" />
+                                  </Button>
+                                </FormControl>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <CalendarComponent
+                                  mode="single"
+                                  selected={field.value}
+                                  onSelect={field.onChange}
+                                  initialFocus
+                                />
+                              </PopoverContent>
+                            </Popover>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={form.control}
+                        name={`pricing_rules.${index}.min_purchase`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Minimum Purchase (Optional)</FormLabel>
+                            <FormControl>
+                              <Input type="number" min="1" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={form.control}
+                        name={`pricing_rules.${index}.max_purchase`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Maximum Purchase (Optional)</FormLabel>
+                            <FormControl>
+                              <Input type="number" min="1" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  const currentRules = form.getValues('pricing_rules') || [];
+                  form.setValue('pricing_rules', [
+                    ...currentRules,
+                    {
+                      price: form.getValues('base_price'),
+                      quantity: null,
+                      start_date: null,
+                      end_date: null,
+                      min_purchase: null,
+                      max_purchase: null,
+                    }
+                  ]);
+                }}
+              >
+                Add Pricing Rule
+              </Button>
+            </div>
+          )}
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <FormField
+            control={form.control}
+            name="quantity_total"
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Quantity Available</FormLabel>
                 <FormControl>
                   <Input type="number" min="1" {...field} />
                 </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
-            name="max_per_user"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Max Per User</FormLabel>
-                <FormControl>
-                  <Input type="number" min="1" {...field} />
-                </FormControl>
-                <FormDescription>Maximum tickets a single user can purchase</FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -505,86 +740,6 @@ function TicketForm({ form, onSubmit, isSubmitting }: {
                     <SelectItem value="disabled">Disabled</SelectItem>
                   </SelectContent>
                 </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
-            name="start_date"
-            render={({ field }) => (
-              <FormItem className="flex flex-col">
-                <FormLabel>Sales Start Date</FormLabel>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <FormControl>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full pl-3 text-left font-normal",
-                          !field.value && "text-muted-foreground"
-                        )}
-                      >
-                        {field.value ? (
-                          format(field.value, "PPP")
-                        ) : (
-                          <span>Pick a date</span>
-                        )}
-                        <Calendar className="ml-auto h-4 w-4 opacity-50" />
-                      </Button>
-                    </FormControl>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <CalendarComponent
-                      mode="single"
-                      selected={field.value}
-                      onSelect={field.onChange}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          
-          <FormField
-            control={form.control}
-            name="end_date"
-            render={({ field }) => (
-              <FormItem className="flex flex-col">
-                <FormLabel>Sales End Date</FormLabel>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <FormControl>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full pl-3 text-left font-normal",
-                          !field.value && "text-muted-foreground"
-                        )}
-                      >
-                        {field.value ? (
-                          format(field.value, "PPP")
-                        ) : (
-                          <span>Pick a date</span>
-                        )}
-                        <Calendar className="ml-auto h-4 w-4 opacity-50" />
-                      </Button>
-                    </FormControl>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <CalendarComponent
-                      mode="single"
-                      selected={field.value}
-                      onSelect={field.onChange}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
                 <FormMessage />
               </FormItem>
             )}

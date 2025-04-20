@@ -3,6 +3,14 @@
 import { createBrowserClient } from '@supabase/ssr';
 import type { Database } from '../types/supabase';
 
+// DEPRECATED: This singleton approach is deprecated. 
+// Please use the createClient() function from @/lib/supabase/client instead.
+// This file is kept for backward compatibility but may be removed in future versions.
+console.warn(
+  'Using the singleton supabase client is deprecated. ' +
+  'Please import createClient from @/lib/supabase/client instead.'
+);
+
 // Ensure environment variables are available
 if (typeof window !== 'undefined') {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {

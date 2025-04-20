@@ -2,9 +2,16 @@
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { v4 as uuidv4 } from 'uuid';
 import { Database } from '@/database.types';
-import { RaceKit, KitDistribution } from '@/types/volunteer';
+import { 
+  RaceKit, 
+  RaceKitWithEvent, 
+  KitAssignment, 
+  KitAssignmentWithDetails,
+  RaceKitSize,
+  RaceKitType,
+  KitDistribution
+} from '@/types/volunteer';
 import { revalidatePath } from 'next/cache';
 
 // Create a Supabase client for server components
@@ -15,18 +22,21 @@ const createServerSupabaseClient = () => {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return cookieStore.getAll();
+        get(name) {
+          return cookieStore.get(name)?.value;
         },
-        setAll(cookiesToSet) {
+        set(name, value, options) {
           try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          } catch {
-            // The `setAll` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing
-            // user sessions.
+            cookieStore.set({ name, value, ...options });
+          } catch (error) {
+            // Handle error if needed
+          }
+        },
+        remove(name, options) {
+          try {
+            cookieStore.delete({ name, ...options });
+          } catch (error) {
+            // Handle error if needed
           }
         },
       },
@@ -37,12 +47,19 @@ const createServerSupabaseClient = () => {
 /**
  * Get race kits for an event
  */
-export async function getKits(eventId: string): Promise<RaceKit[]> {
+export async function getEventKits(eventId: string): Promise<RaceKitWithEvent[]> {
   const supabase = createServerSupabaseClient();
   
   const { data, error } = await supabase
-    .from('race_kits')
-    .select('*')
+    .from('race_kit_inventory')
+    .select(`
+      *,
+      event:events (
+        id,
+        title,
+        date
+      )
+    `)
     .eq('event_id', eventId);
     
   if (error) {
@@ -50,28 +67,27 @@ export async function getKits(eventId: string): Promise<RaceKit[]> {
     throw new Error(`Failed to fetch race kits: ${error.message}`);
   }
   
-  // Calculate available quantity
-  return data.map(kit => ({
-    ...kit,
-    available_quantity: kit.total_quantity - kit.distributed_quantity
-  }));
+  return data;
 }
 
 /**
  * Create a new race kit
  */
-export async function createKit(kitData: Omit<RaceKit, 'id' | 'created_at' | 'updated_at' | 'available_quantity'>): Promise<RaceKit> {
+export async function createKit(kitData: {
+  event_id: string;
+  size: RaceKitSize;
+  quantity: number;
+  type: RaceKitType;
+}): Promise<RaceKit> {
   const supabase = createServerSupabaseClient();
   
   const { data, error } = await supabase
-    .from('race_kits')
+    .from('race_kit_inventory')
     .insert({
-      id: uuidv4(),
       event_id: kitData.event_id,
-      name: kitData.name,
-      description: kitData.description || null,
-      total_quantity: kitData.total_quantity,
-      distributed_quantity: 0
+      size: kitData.size,
+      quantity: kitData.quantity,
+      type: kitData.type
     })
     .select()
     .single();
@@ -85,26 +101,23 @@ export async function createKit(kitData: Omit<RaceKit, 'id' | 'created_at' | 'up
   revalidatePath(`/events/${kitData.event_id}`);
   revalidatePath(`/events/${kitData.event_id}/volunteers`);
   
-  return {
-    ...data,
-    available_quantity: data.total_quantity - data.distributed_quantity
-  };
+  return data;
 }
 
 /**
  * Update a race kit
  */
 export async function updateKit(
-  id: string, 
-  kitData: Partial<Pick<RaceKit, 'name' | 'description' | 'total_quantity'>>
+  kitId: string, 
+  updates: Partial<Pick<RaceKit, 'size' | 'quantity' | 'type'>>
 ): Promise<RaceKit> {
   const supabase = createServerSupabaseClient();
   
   // Get the current kit to revalidate the right paths
   const { data: currentKit } = await supabase
-    .from('race_kits')
+    .from('race_kit_inventory')
     .select('event_id')
-    .eq('id', id)
+    .eq('kit_id', kitId)
     .single();
     
   if (!currentKit) {
@@ -112,14 +125,9 @@ export async function updateKit(
   }
   
   const { data, error } = await supabase
-    .from('race_kits')
-    .update({
-      name: kitData.name,
-      description: kitData.description,
-      total_quantity: kitData.total_quantity,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', id)
+    .from('race_kit_inventory')
+    .update(updates)
+    .eq('kit_id', kitId)
     .select()
     .single();
     
@@ -132,23 +140,20 @@ export async function updateKit(
   revalidatePath(`/events/${currentKit.event_id}`);
   revalidatePath(`/events/${currentKit.event_id}/volunteers`);
   
-  return {
-    ...data,
-    available_quantity: data.total_quantity - data.distributed_quantity
-  };
+  return data;
 }
 
 /**
  * Delete a race kit
  */
-export async function deleteKit(id: string): Promise<void> {
+export async function deleteKit(kitId: string): Promise<void> {
   const supabase = createServerSupabaseClient();
   
   // Get the current kit to revalidate the right paths
   const { data: currentKit } = await supabase
-    .from('race_kits')
+    .from('race_kit_inventory')
     .select('event_id')
-    .eq('id', id)
+    .eq('kit_id', kitId)
     .single();
     
   if (!currentKit) {
@@ -156,9 +161,9 @@ export async function deleteKit(id: string): Promise<void> {
   }
   
   const { error } = await supabase
-    .from('race_kits')
+    .from('race_kit_inventory')
     .delete()
-    .eq('id', id);
+    .eq('kit_id', kitId);
     
   if (error) {
     console.error('Error deleting race kit:', error);
@@ -171,221 +176,182 @@ export async function deleteKit(id: string): Promise<void> {
 }
 
 /**
- * Get kit distributions for an event
+ * Get kit assignments for an event
  */
-export async function getKitDistributions(eventId: string): Promise<KitDistribution[]> {
+export async function getEventKitAssignments(eventId: string): Promise<KitAssignmentWithDetails[]> {
   const supabase = createServerSupabaseClient();
   
   const { data, error } = await supabase
-    .from('kit_distribution')
+    .from('kit_assignments')
     .select(`
       *,
-      race_kits!kit_id(*),
-      profiles!distributed_by(id, name)
+      kit:race_kit_inventory!kit_id(*),
+      registration:registrations!registration_id (
+        id,
+        user_id,
+        event_id,
+        user:users (
+          id,
+          full_name,
+          email
+        )
+      )
     `)
-    .order('distributed_at', { ascending: false });
+    .eq('kit.event_id', eventId);
     
   if (error) {
-    console.error('Error fetching kit distributions:', error);
-    throw new Error(`Failed to fetch kit distributions: ${error.message}`);
+    console.error('Error fetching kit assignments:', error);
+    throw new Error(`Failed to fetch kit assignments: ${error.message}`);
   }
   
-  return data.map(item => ({
-    ...item,
-    kit: item.race_kits,
-    distributor: item.profiles
-  } as unknown as KitDistribution));
+  return data;
 }
 
 /**
- * Get kit distributions for a specific registration
+ * Get kit assignments for a specific registration
  */
-export async function getKitDistributionsByRegistration(registrationId: string): Promise<KitDistribution[]> {
+export async function getRegistrationKitAssignments(registrationId: string): Promise<KitAssignmentWithDetails[]> {
   const supabase = createServerSupabaseClient();
   
   const { data, error } = await supabase
-    .from('kit_distribution')
+    .from('kit_assignments')
     .select(`
       *,
-      race_kits!kit_id(*),
-      profiles!distributed_by(id, name)
+      kit:race_kit_inventory!kit_id(*),
+      registration:registrations!registration_id (
+        id,
+        user_id,
+        event_id,
+        user:users (
+          id,
+          full_name,
+          email
+        )
+      )
     `)
-    .eq('registration_id', registrationId)
-    .order('distributed_at', { ascending: false });
+    .eq('registration_id', registrationId);
     
   if (error) {
-    console.error('Error fetching kit distributions for registration:', error);
-    throw new Error(`Failed to fetch kit distributions: ${error.message}`);
+    console.error('Error fetching kit assignments:', error);
+    throw new Error(`Failed to fetch kit assignments: ${error.message}`);
   }
   
-  return data.map(item => ({
-    ...item,
-    kit: item.race_kits,
-    distributor: item.profiles
-  } as unknown as KitDistribution));
+  return data;
 }
 
 /**
- * Distribute a kit to a participant
+ * Assign a kit to a registration
  */
-export async function distributeKit(
+export async function assignKit(
   kitId: string,
   registrationId: string,
   notes?: string
-): Promise<KitDistribution> {
+): Promise<KitAssignment> {
   const supabase = createServerSupabaseClient();
   
-  // Get current user's ID from session
-  const { data: { user } } = await supabase.auth.getUser();
-  
-  if (!user) {
-    throw new Error('You must be logged in to distribute kits');
-  }
-  
-  // Get the race kit for validation
-  const { data: kit } = await supabase
-    .from('race_kits')
-    .select('*')
-    .eq('id', kitId)
-    .single();
-    
-  if (!kit) {
-    throw new Error('Race kit not found');
-  }
-  
-  // Verify that there are kits available
-  if (kit.distributed_quantity >= kit.total_quantity) {
-    throw new Error('All kits of this type have been distributed');
-  }
-  
-  // Start a transaction
-  // Note: Supabase doesn't support proper transactions in the client,
-  // so we'll use separate operations and handle errors manually
-  
-  // 1. Create the distribution record
-  const { data: distribution, error: distributionError } = await supabase
-    .from('kit_distribution')
+  const { data, error } = await supabase
+    .from('kit_assignments')
     .insert({
-      id: uuidv4(),
       kit_id: kitId,
       registration_id: registrationId,
-      distributed_by: user.id,
-      distributed_at: new Date().toISOString(),
       notes: notes || null
     })
-    .select(`
-      *,
-      race_kits!kit_id(*),
-      profiles!distributed_by(id, name)
-    `)
+    .select()
     .single();
     
-  if (distributionError) {
-    console.error('Error creating kit distribution:', distributionError);
-    throw new Error(`Failed to distribute kit: ${distributionError.message}`);
+  if (error) {
+    console.error('Error assigning kit:', error);
+    throw new Error(`Failed to assign kit: ${error.message}`);
   }
   
-  // 2. Update the kit's distributed quantity
-  const { error: updateError } = await supabase
-    .from('race_kits')
-    .update({
-      distributed_quantity: kit.distributed_quantity + 1,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', kitId);
-    
-  if (updateError) {
-    // If updating the kit fails, try to remove the distribution record
-    await supabase
-      .from('kit_distribution')
-      .delete()
-      .eq('id', distribution.id)
-      .throwOnError();
-      
-    console.error('Error updating kit quantity:', updateError);
-    throw new Error(`Failed to update kit quantity: ${updateError.message}`);
-  }
-  
-  // Get the event ID for revalidation
-  const { data: kitWithEvent } = await supabase
-    .from('race_kits')
-    .select('event_id')
-    .eq('id', kitId)
-    .single();
-    
-  if (kitWithEvent) {
-    // Revalidate paths
-    revalidatePath(`/events/${kitWithEvent.event_id}`);
-    revalidatePath(`/events/${kitWithEvent.event_id}/volunteers`);
-  }
-  
-  return {
-    ...distribution,
-    kit: distribution.race_kits,
-    distributor: distribution.profiles
-  } as unknown as KitDistribution;
+  return data;
 }
 
 /**
- * Cancel a kit distribution
+ * Mark a kit as picked up
  */
-export async function cancelKitDistribution(distributionId: string): Promise<void> {
+export async function markKitAsPickedUp(assignmentId: string): Promise<KitAssignment> {
   const supabase = createServerSupabaseClient();
   
-  // Get the distribution record for validation
-  const { data: distribution } = await supabase
-    .from('kit_distribution')
-    .select(`
-      *,
-      race_kits!kit_id(event_id)
-    `)
-    .eq('id', distributionId)
-    .single();
-    
-  if (!distribution) {
-    throw new Error('Distribution record not found');
-  }
-  
-  // Get the race kit
-  const { data: kit } = await supabase
-    .from('race_kits')
-    .select('*')
-    .eq('id', distribution.kit_id)
-    .single();
-    
-  if (!kit) {
-    throw new Error('Race kit not found');
-  }
-  
-  // Start a transaction
-  // 1. Delete the distribution record
-  const { error: deleteError } = await supabase
-    .from('kit_distribution')
-    .delete()
-    .eq('id', distributionId);
-    
-  if (deleteError) {
-    console.error('Error cancelling kit distribution:', deleteError);
-    throw new Error(`Failed to cancel distribution: ${deleteError.message}`);
-  }
-  
-  // 2. Update the kit's distributed quantity
-  const { error: updateError } = await supabase
-    .from('race_kits')
+  const { data, error } = await supabase
+    .from('kit_assignments')
     .update({
-      distributed_quantity: Math.max(0, kit.distributed_quantity - 1),
-      updated_at: new Date().toISOString()
+      pickup_status: 'picked_up',
+      picked_up_at: new Date().toISOString()
     })
-    .eq('id', kit.id);
+    .eq('assignment_id', assignmentId)
+    .select()
+    .single();
     
-  if (updateError) {
-    console.error('Error updating kit quantity:', updateError);
-    throw new Error(`Failed to update kit quantity: ${updateError.message}`);
+  if (error) {
+    console.error('Error marking kit as picked up:', error);
+    throw new Error(`Failed to mark kit as picked up: ${error.message}`);
   }
   
-  // Revalidate paths if we have the event ID
-  if (distribution.race_kits?.event_id) {
-    revalidatePath(`/events/${distribution.race_kits.event_id}`);
-    revalidatePath(`/events/${distribution.race_kits.event_id}/volunteers`);
+  return data;
+}
+
+/**
+ * Cancel a kit assignment
+ */
+export async function cancelKitAssignment(assignmentId: string): Promise<KitAssignment> {
+  const supabase = createServerSupabaseClient();
+  
+  const { data, error } = await supabase
+    .from('kit_assignments')
+    .update({
+      pickup_status: 'cancelled'
+    })
+    .eq('assignment_id', assignmentId)
+    .select()
+    .single();
+    
+  if (error) {
+    console.error('Error cancelling kit assignment:', error);
+    throw new Error(`Failed to cancel kit assignment: ${error.message}`);
+  }
+  
+  return data;
+}
+
+export async function getKitDistributionsByRegistration(registrationId: string): Promise<KitDistribution[]> {
+  try {
+    const supabase = createServerSupabaseClient();
+    
+    const { data, error } = await supabase
+      .from('kit_distributions')
+      .select(`
+        id,
+        kit:race_kits!kit_id (
+          kit_id,
+          event_id,
+          name,
+          size,
+          type,
+          quantity,
+          status,
+          created_at,
+          updated_at
+        ),
+        status,
+        pickup_date,
+        pickup_time,
+        pickup_location,
+        notes
+      `)
+      .eq('registration_id', registrationId);
+
+    if (error) throw error;
+
+    // Transform the data to match the KitDistribution type
+    const transformedData = data?.map(item => ({
+      ...item,
+      kit: Array.isArray(item.kit) ? item.kit[0] : item.kit
+    })) || [];
+
+    return transformedData;
+  } catch (error) {
+    console.error('Error fetching kit distributions:', error);
+    throw new Error('Failed to fetch kit distributions');
   }
 } 

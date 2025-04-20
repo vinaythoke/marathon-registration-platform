@@ -1,4 +1,7 @@
-import { supabase } from './supabase';
+'use client';
+
+import { createClient } from './supabase/client';
+import { createUserRecord } from './utils/user-utils';
 
 interface SignInCredentials {
   email: string;
@@ -8,6 +11,7 @@ interface SignInCredentials {
 interface SignUpData extends SignInCredentials {
   firstName: string;
   lastName: string;
+  role: 'runner' | 'organizer' | 'volunteer';
 }
 
 interface AuthResponse {
@@ -19,6 +23,7 @@ interface AuthResponse {
 
 export async function signIn(credentials: SignInCredentials): Promise<AuthResponse> {
   try {
+    const supabase = createClient();
     const { data, error } = await supabase.auth.signInWithPassword({
       email: credentials.email,
       password: credentials.password,
@@ -29,6 +34,13 @@ export async function signIn(credentials: SignInCredentials): Promise<AuthRespon
         success: false,
         error: error.message
       };
+    }
+
+    // Check if user record exists, if not create it
+    try {
+      await createUserRecord(supabase, data.user, { email: credentials.email });
+    } catch (err: any) {
+      console.error('Error creating user record during sign in:', err);
     }
 
     return {
@@ -45,13 +57,15 @@ export async function signIn(credentials: SignInCredentials): Promise<AuthRespon
 
 export async function signUp(userData: SignUpData): Promise<AuthResponse> {
   try {
+    const supabase = createClient();
     const { data, error } = await supabase.auth.signUp({
       email: userData.email,
       password: userData.password,
       options: {
         data: {
           first_name: userData.firstName,
-          last_name: userData.lastName
+          last_name: userData.lastName,
+          role: userData.role
         }
       }
     });
@@ -61,6 +75,17 @@ export async function signUp(userData: SignUpData): Promise<AuthResponse> {
         success: false,
         error: error.message
       };
+    }
+
+    if (data.user) {
+      try {
+        await createUserRecord(supabase, data.user, userData);
+      } catch (err: any) {
+        return {
+          success: false,
+          error: err.message
+        };
+      }
     }
 
     return {
@@ -77,8 +102,12 @@ export async function signUp(userData: SignUpData): Promise<AuthResponse> {
 
 export async function googleSignIn(): Promise<AuthResponse> {
   try {
+    const supabase = createClient();
     const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google'
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`
+      }
     });
 
     if (error) {
@@ -87,6 +116,9 @@ export async function googleSignIn(): Promise<AuthResponse> {
         error: error.message
       };
     }
+
+    // Note: For Google sign-in, the user record will be created in the callback
+    // because we don't have access to the user data yet at this point
 
     return {
       success: true,
@@ -102,6 +134,7 @@ export async function googleSignIn(): Promise<AuthResponse> {
 
 export async function signOut(): Promise<AuthResponse> {
   try {
+    const supabase = createClient();
     const { error } = await supabase.auth.signOut();
 
     if (error) {

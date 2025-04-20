@@ -50,19 +50,45 @@ export async function getRunnerProfile(): Promise<RunnerProfile | null> {
     const { data: { session } } = await supabase.auth.getSession();
     
     if (!session) {
+      console.log('No session found in getRunnerProfile');
       return null;
     }
     
-    // Get profile from database
-    const { data } = await supabase
+    // Get user data first to get the internal ID
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('id, role')
+      .eq('auth_id', session.user.id)
+      .single();
+      
+    if (userError) {
+      console.log('Error fetching user data:', userError);
+      return null;
+    }
+    
+    if (!userData) {
+      console.log('No user data found for auth_id:', session.user.id);
+      return null;
+    }
+
+    console.log('Found user data:', userData);
+    
+    // Get profile from database using the internal ID
+    const { data: profileData, error: profileError } = await supabase
       .from('runner_profiles')
       .select('*')
-      .eq('id', session.user.id)
+      .eq('user_id', userData.id)
       .single();
     
-    return data;
+    if (profileError) {
+      console.log('Error fetching runner profile:', profileError);
+      return null;
+    }
+
+    console.log('Runner profile data:', profileData);
+    return profileData;
   } catch (error) {
-    console.error('Error getting profile:', error);
+    console.error('Error in getRunnerProfile:', error);
     return null;
   }
 }
@@ -97,23 +123,23 @@ export async function createRunnerProfile(
     throw new Error('No session found');
   }
   
-  // Check if the user is a runner
+  // Get user data first to get the internal ID and check role
   const { data: userData, error: userError } = await supabase
     .from('users')
-    .select('role')
-    .eq('id', session.user.id)
+    .select('id, role')
+    .eq('auth_id', session.user.id)
     .single();
     
-  if (userError || userData?.role !== 'runner') {
+  if (userError || !userData || userData.role !== 'runner') {
     throw new Error('User is not a runner');
   }
   
-  // Create the runner profile
+  // Create the runner profile using the internal ID
   const { data: profileData, error } = await supabase
     .from('runner_profiles')
     .insert([
       {
-        id: session.user.id,
+        id: userData.id,
         ...data,
       },
     ])
@@ -148,6 +174,20 @@ export const updateRunnerProfile = withCsrf(async function updateRunnerProfileIm
       };
     }
     
+    // Get user data first to get the internal ID
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('auth_id', session.user.id)
+      .single();
+      
+    if (userError || !userData) {
+      return {
+        success: false,
+        error: 'User not found'
+      };
+    }
+    
     // Extract profile data from form
     const profileData = {
       first_name: formData.get('first_name') as string,
@@ -175,11 +215,11 @@ export const updateRunnerProfile = withCsrf(async function updateRunnerProfileIm
       };
     }
     
-    // Update profile in database
+    // Update profile in database using the internal ID
     const { error } = await supabase
       .from('runner_profiles')
       .upsert({
-        id: session.user.id,
+        id: userData.id,
         ...profileData
       }, {
         onConflict: 'id'

@@ -1,7 +1,7 @@
 import { Event, Ticket, RunnerProfile } from "@/types/database";
 
 // Registration steps in the registration flow
-export type RegistrationStep = 'select-ticket' | 'registration-form' | 'review' | 'confirmation';
+export type RegistrationStep = 'select-ticket' | 'registration-form' | 'review' | 'payment' | 'confirmation';
 
 // Registration status
 export type RegistrationStatus = 'pending' | 'confirmed' | 'cancelled' | 'checked_in';
@@ -36,10 +36,22 @@ export interface FormSubmissionResponse {
 export interface TicketWithAvailability extends Ticket {
   available_quantity: number;
   sold_percentage: number;
+  price: number;
+  base_price: number;
+  name: string;
+  description?: string;
 }
 
 // Event with ticket information
-export interface EventWithTickets extends Event {
+export interface EventWithTickets {
+  id: string;
+  title: string;
+  description?: string;
+  date: string;
+  location: string;
+  status: string;
+  banner_url?: string;
+  organizer_id?: string;
   tickets: TicketWithAvailability[];
   registration_count: number;
   registration_deadline?: string;

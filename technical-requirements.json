@@ -1,0 +1,123 @@
+{
+  "frontend": {
+    "framework": {
+      "name": "Next.js",
+      "version": "13+",
+      "features": [
+        "App Router",
+        "Server Components",
+        "Client Components",
+        "API Routes"
+      ]
+    },
+    "ui": {
+      "framework": "Shadcn UI",
+      "requirements": [
+        "100% component adoption",
+        "Dark/light mode support",
+        "Responsive design",
+        "Accessibility compliance"
+      ]
+    },
+    "pwa": {
+      "required": true,
+      "features": [
+        "Offline support",
+        "Push notifications",
+        "Install prompts",
+        "Service workers"
+      ]
+    }
+  },
+  "backend": {
+    "database": {
+      "production": {
+        "type": "Supabase",
+        "features": [
+          "PostgreSQL",
+          "Authentication",
+          "Storage",
+          "Edge Functions",
+          "Real-time Subscriptions"
+        ]
+      },
+      "development": {
+        "type": "Local PostgreSQL",
+        "docker": true,
+        "ports": {
+          "database": 54322,
+          "admin": 5050
+        }
+      }
+    },
+    "apis": {
+      "internal": [
+        "Authentication API",
+        "Events API",
+        "Users API",
+        "Tickets API",
+        "Verification API"
+      ],
+      "external": {
+        "payment": {
+          "provider": "CashFree",
+          "features": [
+            "Payment processing",
+            "Refunds",
+            "Transaction reporting"
+          ]
+        },
+        "verification": {
+          "provider": "SecureID",
+          "features": [
+            "Aadhaar verification",
+            "Document validation"
+          ]
+        }
+      }
+    }
+  },
+  "testing": {
+    "frameworks": [
+      "Jest",
+      "React Testing Library",
+      "Chromatic",
+      "Cypress"
+    ],
+    "coverage": {
+      "minimum": 80,
+      "excludes": [
+        "*.test.ts",
+        "*.stories.tsx"
+      ]
+    }
+  },
+  "deployment": {
+    "environments": [
+      "development",
+      "staging",
+      "production"
+    ],
+    "requirements": [
+      "Environment-specific configuration",
+      "Seamless environment switching",
+      "Automated deployments"
+    ]
+  },
+  "security": {
+    "requirements": [
+      "Role-based access control",
+      "Data encryption",
+      "Secure authentication",
+      "API rate limiting",
+      "Input validation",
+      "XSS protection",
+      "CSRF protection"
+    ],
+    "compliance": [
+      "GDPR",
+      "Data protection",
+      "Payment security"
+    ]
+  }
+} 

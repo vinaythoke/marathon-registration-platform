@@ -33,34 +33,47 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import QRCodeScanner from "../QRCodeScanner";
 import { Progress } from "@/components/ui/progress";
 import KitManagementForm from "../KitManagementForm";
-import { useKitRealTimeUpdates } from "@/hooks/useKitRealTimeUpdates";
 
 // Import service functions
-import { getKits, getKitDistributions, distributeKit, deleteKit } from "@/lib/services/kit-service";
-import { RaceKit, KitDistribution } from "@/types/volunteer";
+import { 
+  getEventKits, 
+  getEventKitAssignments, 
+  assignKit, 
+  markKitAsPickedUp,
+  cancelKitAssignment,
+  deleteKit 
+} from "@/lib/services/kit-service";
+import { 
+  RaceKit, 
+  RaceKitWithEvent, 
+  KitAssignment, 
+  KitAssignmentWithDetails,
+  RaceKitStatus,
+  PickupStatus
+} from "@/types/volunteer";
 
 interface KitDistributionTabProps {
   eventId: string;
 }
 
 export default function KitDistributionTab({ eventId }: KitDistributionTabProps) {
-  const [kits, setKits] = useState<RaceKit[]>([]);
-  const [distributions, setDistributions] = useState<KitDistribution[]>([]);
+  const [kits, setKits] = useState<RaceKitWithEvent[]>([]);
+  const [assignments, setAssignments] = useState<KitAssignmentWithDetails[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [filteredDistributions, setFilteredDistributions] = useState<KitDistribution[]>([]);
+  const [filteredAssignments, setFilteredAssignments] = useState<KitAssignmentWithDetails[]>([]);
   
   // QR code scanner state
   const [qrScannerOpen, setQrScannerOpen] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [scanSuccess, setScanSuccess] = useState(false);
   
-  // Kit distribution dialog state
-  const [distributionDialogOpen, setDistributionDialogOpen] = useState(false);
+  // Kit assignment dialog state
+  const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
   const [selectedKit, setSelectedKit] = useState<RaceKit | null>(null);
   const [registrationId, setRegistrationId] = useState<string>("");
-  const [processingDistribution, setProcessingDistribution] = useState(false);
+  const [processingAssignment, setProcessingAssignment] = useState(false);
   const [notes, setNotes] = useState<string>("");
 
   // Add state for kit management
@@ -69,125 +82,98 @@ export default function KitDistributionTab({ eventId }: KitDistributionTabProps)
   const [kitToDelete, setKitToDelete] = useState<RaceKit | null>(null);
   const [isDeletingKit, setIsDeletingKit] = useState(false);
 
-  // Set up real-time updates
-  const { isSubscribed, error: realtimeError } = useKitRealTimeUpdates(
-    eventId,
-    (updatedKits) => {
-      setKits(updatedKits);
-    },
-    (updatedDistributions) => {
-      setDistributions(updatedDistributions);
-      setFilteredDistributions(updatedDistributions);
-    }
-  );
-
-  // Load kits and distribution data
+  // Load initial data
   useEffect(() => {
-    async function loadData() {
-      try {
-        setIsLoading(true);
-        
-        // Fetch kits for this event
-        const kitsData = await getKits(eventId);
-        setKits(kitsData);
-        
-        // Fetch distributions for this event
-        const distributionsData = await getKitDistributions(eventId);
-        setDistributions(distributionsData);
-        setFilteredDistributions(distributionsData);
-        
-        setError(null);
-      } catch (err: any) {
-        console.error("Error loading kit data:", err);
-        setError(err.message || "Failed to load kit distribution data");
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    
-    loadData();
+    loadKitsAndAssignments();
   }, [eventId]);
 
-  // Filter distributions based on search query
+  // Filter assignments when search query changes
   useEffect(() => {
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      const filtered = distributions.filter(
-        (distribution) =>
-          distribution.kit?.name.toLowerCase().includes(query) ||
-          distribution.registration_id.toLowerCase().includes(query) ||
-          distribution.distributor?.name?.toLowerCase().includes(query)
-      );
-      setFilteredDistributions(filtered);
-    } else {
-      setFilteredDistributions(distributions);
+    if (!searchQuery.trim()) {
+      setFilteredAssignments(assignments);
+      return;
     }
-  }, [distributions, searchQuery]);
 
-  // Handle QR code scan
-  const handleQRScan = async (data: string) => {
+    const query = searchQuery.toLowerCase();
+    const filtered = assignments.filter((assignment) => {
+      const user = assignment.registration.user;
+      return (
+        user.full_name.toLowerCase().includes(query) ||
+        user.email.toLowerCase().includes(query) ||
+        assignment.registration_id.toLowerCase().includes(query)
+      );
+    });
+
+    setFilteredAssignments(filtered);
+  }, [searchQuery, assignments]);
+
+  const loadKitsAndAssignments = async () => {
     try {
-      setScanMessage("Processing QR code...");
-      setScanSuccess(false);
+      setIsLoading(true);
+      const [kitsData, assignmentsData] = await Promise.all([
+        getEventKits(eventId),
+        getEventKitAssignments(eventId)
+      ]);
       
-      // Parse the QR code data
-      const qrData = JSON.parse(data);
-      
-      // Validate that this is a registration QR code
-      if (qrData.type !== "registration") {
-        setScanMessage("Invalid QR code: Not a registration code");
-        return;
-      }
-      
-      // Open the distribution dialog with the registration ID
-      setRegistrationId(qrData.registrationId);
-      setQrScannerOpen(false);
-      setDistributionDialogOpen(true);
-      setScanSuccess(true);
-      
+      setKits(kitsData);
+      setAssignments(assignmentsData);
+      setFilteredAssignments(assignmentsData);
     } catch (err: any) {
-      console.error("Error processing QR code:", err);
-      setScanMessage(`Error: ${err.message}`);
+      console.error("Error loading kits and assignments:", err);
+      setError(err.message || "Failed to load kit data");
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Handle kit distribution
-  const handleDistributeKit = async () => {
+  const handleQRCodeScanned = (data: string) => {
+    setRegistrationId(data);
+    setQrScannerOpen(false);
+    setScanMessage("Registration ID scanned successfully");
+    setScanSuccess(true);
+  };
+
+  const handleAssignKit = async () => {
     if (!selectedKit || !registrationId) return;
     
     try {
-      setProcessingDistribution(true);
+      setProcessingAssignment(true);
       
-      // Call the service function to record the kit distribution
-      const newDistribution = await distributeKit(
-        selectedKit.id,
-        registrationId,
-        notes
-      );
+      await assignKit(selectedKit.kit_id, registrationId, notes);
       
-      // Update local state with the new distribution
-      setDistributions([newDistribution, ...distributions]);
+      // Reload data to get updated assignments
+      await loadKitsAndAssignments();
       
-      // Update the kit's distributed quantity
-      setKits(
-        kits.map((kit) =>
-          kit.id === selectedKit.id
-            ? { ...kit, distributed_quantity: kit.distributed_quantity + 1 }
-            : kit
-        )
-      );
-      
-      // Reset form and close dialog
+      setAssignmentDialogOpen(false);
       setSelectedKit(null);
       setRegistrationId("");
       setNotes("");
-      setDistributionDialogOpen(false);
       
     } catch (err: any) {
-      console.error("Error distributing kit:", err);
-      setError(err.message || "Failed to distribute kit");
+      console.error("Error assigning kit:", err);
+      setError(err.message || "Failed to assign kit");
     } finally {
-      setProcessingDistribution(false);
+      setProcessingAssignment(false);
+    }
+  };
+
+  const handleMarkAsPickedUp = async (assignmentId: string) => {
+    try {
+      await markKitAsPickedUp(assignmentId);
+      await loadKitsAndAssignments();
+    } catch (err: any) {
+      console.error("Error marking kit as picked up:", err);
+      setError(err.message || "Failed to mark kit as picked up");
+    }
+  };
+
+  const handleCancelAssignment = async (assignmentId: string) => {
+    try {
+      await cancelKitAssignment(assignmentId);
+      await loadKitsAndAssignments();
+    } catch (err: any) {
+      console.error("Error cancelling assignment:", err);
+      setError(err.message || "Failed to cancel assignment");
     }
   };
 
@@ -198,10 +184,10 @@ export default function KitDistributionTab({ eventId }: KitDistributionTabProps)
     try {
       setIsDeletingKit(true);
       
-      await deleteKit(kitToDelete.id);
+      await deleteKit(kitToDelete.kit_id);
       
       // Update local state by removing the deleted kit
-      setKits(kits.filter(kit => kit.id !== kitToDelete.id));
+      setKits(kits.filter(kit => kit.kit_id !== kitToDelete.kit_id));
       
       setDeleteDialogOpen(false);
       setKitToDelete(null);
@@ -218,7 +204,7 @@ export default function KitDistributionTab({ eventId }: KitDistributionTabProps)
   const handleKitSaved = (updatedKit: RaceKit) => {
     if (selectedKitForEdit) {
       // Update kit in the list
-      setKits(kits.map(kit => kit.id === updatedKit.id ? updatedKit : kit));
+      setKits(kits.map(kit => kit.kit_id === updatedKit.kit_id ? updatedKit : kit));
       setSelectedKitForEdit(null);
     } else {
       // Add new kit to the list
@@ -226,33 +212,35 @@ export default function KitDistributionTab({ eventId }: KitDistributionTabProps)
     }
   };
 
+  const getStatusBadgeVariant = (status: RaceKitStatus) => {
+    switch (status) {
+      case 'in_stock':
+        return 'success';
+      case 'low_stock':
+        return 'warning';
+      case 'out_of_stock':
+        return 'destructive';
+      default:
+        return 'secondary';
+    }
+  };
+
+  const getPickupStatusBadgeVariant = (status: PickupStatus) => {
+    switch (status) {
+      case 'picked_up':
+        return 'success';
+      case 'pending':
+        return 'warning';
+      case 'cancelled':
+        return 'destructive';
+      default:
+        return 'secondary';
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {/* Real-time status indicator */}
-      {isSubscribed && (
-        <div className="bg-green-50 border border-green-200 text-green-800 text-xs px-3 py-1 rounded flex items-center mb-2">
-          <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
-          Real-time updates active
-        </div>
-      )}
-
-      {realtimeError && (
-        <Alert variant="destructive" className="mb-4">
-          <AlertDescription>
-            Failed to connect to real-time updates: {realtimeError}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Kit inventory section */}
+      {/* Kit Inventory Section */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
@@ -261,35 +249,42 @@ export default function KitDistributionTab({ eventId }: KitDistributionTabProps)
               Available race kits for this event
             </CardDescription>
           </div>
-          <div>
-            <KitManagementForm 
-              eventId={eventId}
-              onSuccess={handleKitSaved}
-              kit={selectedKitForEdit}
-              triggerButton={
-                <Button size="sm">
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add Kit
-                </Button>
-              }
-            />
-          </div>
+          <KitManagementForm 
+            eventId={eventId}
+            onSuccess={handleKitSaved}
+            kit={selectedKitForEdit}
+          />
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="py-8 text-center">Loading kit inventory...</div>
+          ) : error ? (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           ) : kits.length === 0 ? (
             <div className="py-8 text-center">
-              <p className="text-muted-foreground">No race kits have been added for this event yet.</p>
-              <p className="text-muted-foreground text-sm mt-2">Click "Add Kit" to create race kits for distribution.</p>
+              <Package className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
+              <p className="text-muted-foreground">No race kits have been added yet.</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Click "Add Kit" to create race kits for distribution.
+              </p>
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {kits.map((kit) => (
-                <Card key={kit.id} className="overflow-hidden">
+                <Card key={kit.kit_id} className="overflow-hidden">
                   <CardHeader className="p-4 pb-2">
                     <div className="flex justify-between items-start">
-                      <CardTitle className="text-base">{kit.name}</CardTitle>
+                      <div>
+                        <Badge variant={getStatusBadgeVariant(kit.status)}>
+                          {kit.status.replace('_', ' ')}
+                        </Badge>
+                        <CardTitle className="text-base mt-2">
+                          {kit.type.charAt(0).toUpperCase() + kit.type.slice(1)} - {kit.size}
+                        </CardTitle>
+                      </div>
                       <div className="flex space-x-1">
                         <Button 
                           variant="ghost" 
@@ -312,46 +307,29 @@ export default function KitDistributionTab({ eventId }: KitDistributionTabProps)
                         </Button>
                       </div>
                     </div>
-                    <CardDescription className="text-xs line-clamp-2">
-                      {kit.description || "No description provided"}
-                    </CardDescription>
                   </CardHeader>
                   <CardContent className="p-4 pt-0">
-                    <div className="space-y-3">
-                      <div>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span>Distribution Progress</span>
-                          <span className="text-muted-foreground">
-                            {kit.distributed_quantity} / {kit.total_quantity}
-                          </span>
-                        </div>
-                        <Progress 
-                          value={(kit.distributed_quantity / kit.total_quantity) * 100} 
-                          className="h-2" 
-                        />
+                    <div className="mt-2">
+                      <div className="flex justify-between text-sm mb-1">
+                        <span>Quantity</span>
+                        <span>{kit.quantity}</span>
                       </div>
-                      
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Badge variant={kit.available_quantity > 0 ? "outline" : "destructive"} className="mr-2">
-                            {kit.available_quantity > 0 
-                              ? `${kit.available_quantity} Available` 
-                              : "Out of stock"}
-                          </Badge>
-                        </div>
-                        <Button 
-                          size="sm" 
-                          variant="outline"
-                          disabled={kit.available_quantity <= 0}
-                          onClick={() => {
-                            setSelectedKit(kit);
-                            setDistributionDialogOpen(true);
-                          }}
-                        >
-                          Distribute
-                        </Button>
-                      </div>
+                      <Progress 
+                        value={kit.quantity > 0 ? (kit.quantity / 100) * 100 : 0} 
+                        className="h-2"
+                      />
                     </div>
+                    <Button
+                      className="w-full mt-4"
+                      size="sm"
+                      disabled={kit.status === 'out_of_stock'}
+                      onClick={() => {
+                        setSelectedKit(kit);
+                        setAssignmentDialogOpen(true);
+                      }}
+                    >
+                      Assign Kit
+                    </Button>
                   </CardContent>
                 </Card>
               ))}
@@ -360,171 +338,195 @@ export default function KitDistributionTab({ eventId }: KitDistributionTabProps)
         </CardContent>
       </Card>
 
-      {/* Kit distribution history */}
+      {/* Kit Assignments Section */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Distribution History</CardTitle>
-            <CardDescription>
-              Record of all distributed race kits
-            </CardDescription>
-          </div>
-          <div className="flex gap-2">
-            <Dialog open={qrScannerOpen} onOpenChange={setQrScannerOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <QrCode className="h-4 w-4 mr-2" />
-                  Scan QR
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Scan Registration QR Code</DialogTitle>
-                  <DialogDescription>
-                    Scan a participant's registration QR code to distribute a kit.
-                  </DialogDescription>
-                </DialogHeader>
-                
-                <QRCodeScanner onScan={handleQRScan} onError={(msg) => setScanMessage(msg)} />
-                
-                {scanMessage && (
-                  <Alert variant={scanSuccess ? "default" : "destructive"} className="mt-4">
-                    <AlertTitle>{scanSuccess ? "Success" : "Error"}</AlertTitle>
-                    <AlertDescription>{scanMessage}</AlertDescription>
-                  </Alert>
-                )}
-              </DialogContent>
-            </Dialog>
-          </div>
+        <CardHeader>
+          <CardTitle>Kit Assignments</CardTitle>
+          <CardDescription>
+            Track and manage race kit assignments
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="mb-4">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                type="search"
-                placeholder="Search distributions..."
-                className="pl-8"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+          <div className="flex items-center gap-4 mb-4">
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by participant name or email..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-8"
+                />
+              </div>
             </div>
+            <Button
+              size="icon"
+              variant="outline"
+              onClick={() => setQrScannerOpen(true)}
+            >
+              <QrCode className="h-4 w-4" />
+            </Button>
           </div>
 
-          {isLoading ? (
-            <div className="py-8 text-center">Loading distributions...</div>
-          ) : filteredDistributions.length === 0 ? (
-            <div className="py-8 text-center">
-              <p className="text-muted-foreground">
-                {searchQuery
-                  ? "No distributions found matching your search."
-                  : "No kits have been distributed yet."}
-              </p>
-            </div>
-          ) : (
-            <div className="border rounded-md">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Kit Type</TableHead>
-                    <TableHead>Registration ID</TableHead>
-                    <TableHead className="hidden md:table-cell">Distributed By</TableHead>
-                    <TableHead className="hidden sm:table-cell">Date</TableHead>
-                    <TableHead>Notes</TableHead>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Participant</TableHead>
+                  <TableHead>Kit Details</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Assigned At</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredAssignments.map((assignment) => (
+                  <TableRow key={assignment.assignment_id}>
+                    <TableCell>
+                      <div>
+                        <div className="font-medium">
+                          {assignment.registration.user.full_name}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {assignment.registration.user.email}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div>
+                        <div className="font-medium">
+                          {assignment.kit.type.charAt(0).toUpperCase() + 
+                           assignment.kit.type.slice(1)} - {assignment.kit.size}
+                        </div>
+                        {assignment.notes && (
+                          <div className="text-sm text-muted-foreground">
+                            {assignment.notes}
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={getPickupStatusBadgeVariant(assignment.pickup_status)}>
+                        {assignment.pickup_status.replace('_', ' ')}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {new Date(assignment.assigned_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      {assignment.pickup_status === 'pending' && (
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => handleMarkAsPickedUp(assignment.assignment_id)}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                            Mark Picked Up
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleCancelAssignment(assignment.assignment_id)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredDistributions.map((distribution) => (
-                    <TableRow key={distribution.id}>
-                      <TableCell>{distribution.kit?.name || "Unknown Kit"}</TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {distribution.registration_id.substring(0, 8)}...
-                      </TableCell>
-                      <TableCell className="hidden md:table-cell">
-                        {distribution.distributor?.name || "Unknown"}
-                      </TableCell>
-                      <TableCell className="hidden sm:table-cell">
-                        {new Date(distribution.distributed_at).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell className="max-w-[150px] truncate">
-                        {distribution.notes || "-"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+                ))}
+                {filteredAssignments.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8">
+                      <Package className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
+                      <p className="text-muted-foreground">No kit assignments found</p>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 
-      {/* Kit Distribution Dialog */}
-      <Dialog open={distributionDialogOpen} onOpenChange={setDistributionDialogOpen}>
+      {/* QR Code Scanner Dialog */}
+      <Dialog open={qrScannerOpen} onOpenChange={setQrScannerOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Distribute Race Kit</DialogTitle>
+            <DialogTitle>Scan Registration QR Code</DialogTitle>
             <DialogDescription>
-              Record a race kit distribution to a participant.
+              Position the QR code within the scanner frame
+            </DialogDescription>
+          </DialogHeader>
+          <QRCodeScanner onScan={handleQRCodeScanned} />
+        </DialogContent>
+      </Dialog>
+
+      {/* Kit Assignment Dialog */}
+      <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Race Kit</DialogTitle>
+            <DialogDescription>
+              Record a race kit assignment to a participant
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Registration ID</label>
-              <Input
-                value={registrationId}
-                onChange={(e) => setRegistrationId(e.target.value)}
-                placeholder="Enter registration ID or scan QR"
-              />
+              <div className="flex gap-2">
+                <Input
+                  value={registrationId}
+                  onChange={(e) => setRegistrationId(e.target.value)}
+                  placeholder="Enter registration ID or scan QR"
+                />
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => setQrScannerOpen(true)}
+                >
+                  <QrCode className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Kit Type</label>
-              <select
-                className="w-full h-10 px-3 py-2 text-sm rounded-md border border-input bg-background"
-                value={selectedKit?.id || ""}
-                onChange={(e) => {
-                  const kitId = e.target.value;
-                  const kit = kits.find((k) => k.id === kitId) || null;
-                  setSelectedKit(kit);
-                }}
-              >
-                <option value="">Select a kit type</option>
-                {kits
-                  .filter((kit) => kit.available_quantity > 0)
-                  .map((kit) => (
-                    <option key={kit.id} value={kit.id}>
-                      {kit.name} ({kit.available_quantity} available)
-                    </option>
-                  ))}
-              </select>
-            </div>
+            {scanSuccess && (
+              <Alert>
+                <CheckCircle className="h-4 w-4" />
+                <AlertDescription>{scanMessage}</AlertDescription>
+              </Alert>
+            )}
             
             <div className="space-y-2">
               <label className="text-sm font-medium">Notes (Optional)</label>
               <Input
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Add any additional notes"
+                placeholder="Add any special notes..."
               />
             </div>
           </div>
           
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDistributionDialogOpen(false)} disabled={processingDistribution}>
+            <Button
+              variant="outline"
+              onClick={() => setAssignmentDialogOpen(false)}
+              disabled={processingAssignment}
+            >
               Cancel
             </Button>
-            <Button 
-              onClick={handleDistributeKit} 
-              disabled={!selectedKit || !registrationId || processingDistribution}
+            <Button
+              onClick={handleAssignKit}
+              disabled={!selectedKit || !registrationId || processingAssignment}
             >
-              {processingDistribution ? "Processing..." : "Distribute Kit"}
+              {processingAssignment ? "Assigning..." : "Assign Kit"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Kit Delete Confirmation Dialog */}
+      {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -536,16 +538,16 @@ export default function KitDistributionTab({ eventId }: KitDistributionTabProps)
           
           {kitToDelete && (
             <div className="py-4">
-              <p><span className="font-medium">Kit Name:</span> {kitToDelete.name}</p>
-              <p><span className="font-medium">Total Quantity:</span> {kitToDelete.total_quantity}</p>
-              <p><span className="font-medium">Distributed:</span> {kitToDelete.distributed_quantity}</p>
+              <p><span className="font-medium">Type:</span> {kitToDelete.type}</p>
+              <p><span className="font-medium">Size:</span> {kitToDelete.size}</p>
+              <p><span className="font-medium">Quantity:</span> {kitToDelete.quantity}</p>
               
-              {kitToDelete.distributed_quantity > 0 && (
+              {kitToDelete.status !== 'in_stock' && (
                 <Alert className="mt-4">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    Warning: {kitToDelete.distributed_quantity} kits have already been distributed.
-                    Deleting this kit will not remove distribution records.
+                    Warning: This kit is currently {kitToDelete.status.replace('_', ' ')}.
+                    Deleting it may affect existing assignments.
                   </AlertDescription>
                 </Alert>
               )}
@@ -553,7 +555,11 @@ export default function KitDistributionTab({ eventId }: KitDistributionTabProps)
           )}
           
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={isDeletingKit}>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={isDeletingKit}
+            >
               Cancel
             </Button>
             <Button 
@@ -566,17 +572,6 @@ export default function KitDistributionTab({ eventId }: KitDistributionTabProps)
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* If using KitManagementForm to edit a kit that was selected earlier,
-          but the user closed the dialog, we need to reset selectedKitForEdit */}
-      {selectedKitForEdit && (
-        <KitManagementForm 
-          eventId={eventId}
-          kit={selectedKitForEdit}
-          onSuccess={handleKitSaved}
-          triggerButton={<span className="hidden" />}
-        />
-      )}
     </div>
   );
 } 

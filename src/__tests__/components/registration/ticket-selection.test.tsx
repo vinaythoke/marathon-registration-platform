@@ -1,233 +1,456 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import TicketSelection from '@/components/registration/TicketSelection';
-import { useRegistration } from '@/components/registration/RegistrationContext';
-import { createRegistration } from '@/lib/actions/registration';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { TicketSelection } from '@/components/registration/TicketSelection';
+import { TicketTypeSchema, TicketType, TicketStatus } from '@/types/ticket';
+import * as auth from '@/hooks/useAuth';
 
-// Mock the registration context
-jest.mock('@/components/registration/RegistrationContext', () => ({
-  useRegistration: jest.fn()
+// Mock useAuth hook
+jest.mock('@/hooks/useAuth', () => ({
+  useAuth: jest.fn()
 }));
 
-// Mock the registration action
-jest.mock('@/lib/actions/registration', () => ({
-  createRegistration: jest.fn()
-}));
+describe('TicketSelection', () => {
+  const mockOnSelect = jest.fn();
 
-describe('TicketSelection Component', () => {
-  const mockEvent = {
-    id: 'event-123',
-    title: 'Test Marathon',
-    description: 'A test marathon event',
-    date: new Date().toISOString()
+  const baseTicket: TicketTypeSchema = {
+    id: '1',
+    event_id: 'event-1',
+    name: 'Regular Ticket',
+    description: 'Standard entry ticket',
+    base_price: 100,
+    type: 'REGULAR' as TicketType,
+    quantity_total: 100,
+    quantity_sold: 0,
+    quantity_reserved: 0,
+    status: 'ACTIVE' as TicketStatus,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
   };
 
-  const mockTickets = [
-    {
-      id: 'ticket-1',
-      name: 'Standard Entry',
-      description: 'Regular marathon entry',
-      price: 50.00,
-      available_quantity: 10,
-      features: ['Race entry', 'T-shirt', 'Medal']
-    },
-    {
-      id: 'ticket-2',
-      name: 'VIP Entry',
-      description: 'VIP marathon entry with extras',
-      price: 100.00,
-      available_quantity: 5,
-      features: ['Race entry', 'Premium T-shirt', 'Medal', 'VIP area access']
-    },
-    {
-      id: 'ticket-3',
-      name: 'Sold Out Ticket',
-      description: 'This ticket is sold out',
-      price: 25.00,
-      available_quantity: 0,
-      features: ['Basic entry']
+  const runnerTicket: TicketTypeSchema = {
+    ...baseTicket,
+    id: '2',
+    name: 'Runner Ticket',
+    description: 'Ticket for runners only',
+    visibility_rules: {
+      restricted_to: ['runner']
     }
-  ];
+  };
 
-  const mockGoToNextStep = jest.fn();
-  const mockSetSelectedTicket = jest.fn();
-  const mockSetRegistrationId = jest.fn();
-  const mockValidateCurrentStep = jest.fn().mockReturnValue(true);
+  const organizerTicket: TicketTypeSchema = {
+    ...baseTicket,
+    id: '3',
+    name: 'Organizer Ticket',
+    description: 'Ticket for organizers only',
+    visibility_rules: {
+      restricted_to: ['organizer']
+    }
+  };
+
+  const soldOutTicket: TicketTypeSchema = {
+    ...baseTicket,
+    id: '4',
+    name: 'Sold Out Ticket',
+    quantity_total: 10,
+    quantity_sold: 10,
+    quantity_reserved: 0,
+    status: 'SOLD_OUT' as TicketStatus
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
-    (useRegistration as jest.Mock).mockReturnValue({
-      tickets: mockTickets,
-      event: mockEvent,
-      selectedTicket: null,
-      setSelectedTicket: mockSetSelectedTicket,
-      goToNextStep: mockGoToNextStep,
-      stepValidationErrors: {},
-      validateCurrentStep: mockValidateCurrentStep,
-      registrationId: null,
-      setRegistrationId: mockSetRegistrationId
-    });
+    mockOnSelect.mockClear();
   });
 
-  test('renders ticket options correctly', () => {
-    render(<TicketSelection />);
+  it('renders tickets without restrictions for all users', () => {
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
     
-    expect(screen.getByText('Select Ticket')).toBeInTheDocument();
-    expect(screen.getByText('Choose a ticket type for Test Marathon')).toBeInTheDocument();
-    
-    // Check if all tickets are displayed
-    expect(screen.getByText('Standard Entry')).toBeInTheDocument();
-    expect(screen.getByText('VIP Entry')).toBeInTheDocument();
-    expect(screen.getByText('Sold Out Ticket')).toBeInTheDocument();
-    
-    // Check if prices are displayed correctly
-    expect(screen.getByText('$50.00')).toBeInTheDocument();
-    expect(screen.getByText('$100.00')).toBeInTheDocument();
-    expect(screen.getByText('$25.00')).toBeInTheDocument();
-    
-    // Check if sold out badge is displayed
-    expect(screen.getByText('Sold Out')).toBeInTheDocument();
+    render(
+      <TicketSelection 
+        tickets={[baseTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    expect(screen.getByText('Regular Ticket')).toBeInTheDocument();
   });
 
-  test('allows selecting an available ticket', () => {
-    render(<TicketSelection />);
+  it('shows role-restricted tickets only to users with that role', () => {
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['runner'] } });
     
-    // Click on the first ticket (Standard Entry)
-    fireEvent.click(screen.getByText('Standard Entry'));
-    
-    expect(mockSetSelectedTicket).toHaveBeenCalledWith(mockTickets[0]);
+    render(
+      <TicketSelection 
+        tickets={[runnerTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    expect(screen.getByText('Runner Ticket')).toBeInTheDocument();
   });
 
-  test('does not allow selecting a sold out ticket', () => {
-    render(<TicketSelection />);
+  it('shows all applicable tickets to users with multiple roles', () => {
+    (auth.useAuth as jest.Mock).mockReturnValue({ 
+      user: { roles: ['runner', 'organizer'] } 
+    });
     
-    // Click on the sold out ticket
-    fireEvent.click(screen.getByText('Sold Out Ticket'));
-    
-    expect(mockSetSelectedTicket).not.toHaveBeenCalled();
+    render(
+      <TicketSelection 
+        tickets={[baseTicket, runnerTicket, organizerTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    expect(screen.getByText('Regular Ticket')).toBeInTheDocument();
+    expect(screen.getByText('Runner Ticket')).toBeInTheDocument();
+    expect(screen.getByText('Organizer Ticket')).toBeInTheDocument();
   });
 
-  test('continues to next step when valid ticket is selected', async () => {
-    // Mock a selected ticket
-    (useRegistration as jest.Mock).mockReturnValue({
-      tickets: mockTickets,
-      event: mockEvent,
-      selectedTicket: mockTickets[0],
-      setSelectedTicket: mockSetSelectedTicket,
-      goToNextStep: mockGoToNextStep,
-      stepValidationErrors: {},
-      validateCurrentStep: mockValidateCurrentStep,
-      registrationId: null,
-      setRegistrationId: mockSetRegistrationId
+  it('handles users with no roles properly', () => {
+    (auth.useAuth as jest.Mock).mockReturnValue({
+      user: null
     });
+
+    render(
+      <TicketSelection 
+        tickets={[baseTicket, runnerTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
     
-    // Mock successful registration creation
-    (createRegistration as jest.Mock).mockResolvedValue({ 
-      registrationId: 'reg-123',
-      success: true 
-    });
-    
-    render(<TicketSelection />);
-    
-    // Continue button should be enabled
-    const continueButton = screen.getByText('Continue');
-    expect(continueButton).not.toBeDisabled();
-    
-    // Click continue
-    fireEvent.click(continueButton);
-    
-    await waitFor(() => {
-      // Check if registration was created
-      expect(createRegistration).toHaveBeenCalledWith('event-123', 'ticket-1');
-      
-      // Check if registration ID was set
-      expect(mockSetRegistrationId).toHaveBeenCalledWith('reg-123');
-      
-      // Check if we moved to the next step
-      expect(mockGoToNextStep).toHaveBeenCalled();
-    });
+    // Should only show unrestricted tickets
+    expect(screen.getByText('Regular Ticket')).toBeInTheDocument();
+    expect(screen.queryByText('Runner Ticket')).not.toBeInTheDocument();
   });
 
-  test('displays error when registration creation fails', async () => {
-    // Mock a selected ticket
-    (useRegistration as jest.Mock).mockReturnValue({
-      tickets: mockTickets,
-      event: mockEvent,
-      selectedTicket: mockTickets[0],
-      setSelectedTicket: mockSetSelectedTicket,
-      goToNextStep: mockGoToNextStep,
-      stepValidationErrors: {},
-      validateCurrentStep: mockValidateCurrentStep,
-      registrationId: null,
-      setRegistrationId: mockSetRegistrationId
-    });
+  it('calls onSelect with correct ticket ID and quantity when selecting a ticket', () => {
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
     
-    // Mock failed registration creation
-    const errorMessage = 'Failed to create registration';
-    (createRegistration as jest.Mock).mockRejectedValue(new Error(errorMessage));
-    
-    render(<TicketSelection />);
-    
-    // Click continue
-    fireEvent.click(screen.getByText('Continue'));
-    
-    await waitFor(() => {
-      // Check if error message is displayed
-      expect(screen.getByText(errorMessage)).toBeInTheDocument();
-      
-      // Check that we did not move to the next step
-      expect(mockGoToNextStep).not.toHaveBeenCalled();
-    });
+    render(
+      <TicketSelection 
+        tickets={[baseTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    const selectButton = screen.getByRole('button', { name: /select/i });
+    fireEvent.click(selectButton);
+
+    // Should be called with default quantity of 1
+    expect(mockOnSelect).toHaveBeenCalledWith(baseTicket.id, 1);
   });
 
-  test('skips registration creation if registrationId already exists', async () => {
-    // Mock a selected ticket and existing registration ID
-    (useRegistration as jest.Mock).mockReturnValue({
-      tickets: mockTickets,
-      event: mockEvent,
-      selectedTicket: mockTickets[0],
-      setSelectedTicket: mockSetSelectedTicket,
-      goToNextStep: mockGoToNextStep,
-      stepValidationErrors: {},
-      validateCurrentStep: mockValidateCurrentStep,
-      registrationId: 'existing-reg-123',
-      setRegistrationId: mockSetRegistrationId
-    });
+  it('calls onSelect with correct quantity after changing quantity', () => {
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
     
-    render(<TicketSelection />);
-    
-    // Click continue
-    fireEvent.click(screen.getByText('Continue'));
-    
-    // Check that we moved to the next step without creating a new registration
-    expect(createRegistration).not.toHaveBeenCalled();
-    expect(mockGoToNextStep).toHaveBeenCalled();
+    render(
+      <TicketSelection 
+        tickets={[baseTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    // Increase quantity to 3
+    const increaseButton = screen.getByRole('button', { name: /plus/i });
+    fireEvent.click(increaseButton);
+    fireEvent.click(increaseButton);
+
+    const selectButton = screen.getByRole('button', { name: /select 3 tickets/i });
+    fireEvent.click(selectButton);
+
+    expect(mockOnSelect).toHaveBeenCalledWith(baseTicket.id, 3);
   });
 
-  test('displays all tickets sold out message when applicable', () => {
-    // Mock all tickets as sold out
-    const soldOutTickets = mockTickets.map(ticket => ({
-      ...ticket,
-      available_quantity: 0
-    }));
+  it('calls onSelect with minimum quantity from pricing rules', () => {
+    const ticketWithMinimum: TicketTypeSchema = {
+      ...baseTicket,
+      pricing_rules: [{
+        min_purchase: 2,
+        max_purchase: 5,
+        price: 90
+      }]
+    };
+
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
     
-    (useRegistration as jest.Mock).mockReturnValue({
-      tickets: soldOutTickets,
-      event: mockEvent,
-      selectedTicket: null,
-      setSelectedTicket: mockSetSelectedTicket,
-      goToNextStep: mockGoToNextStep,
-      stepValidationErrors: {},
-      validateCurrentStep: mockValidateCurrentStep,
-      registrationId: null,
-      setRegistrationId: mockSetRegistrationId
-    });
+    render(
+      <TicketSelection 
+        tickets={[ticketWithMinimum]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    const selectButton = screen.getByRole('button', { name: /select 2 tickets/i });
+    fireEvent.click(selectButton);
+
+    // Should be called with minimum quantity of 2
+    expect(mockOnSelect).toHaveBeenCalledWith(ticketWithMinimum.id, 2);
+  });
+
+  it('displays ticket price correctly', () => {
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
     
-    render(<TicketSelection />);
+    render(
+      <TicketSelection 
+        tickets={[baseTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    expect(screen.getByText('₹100')).toBeInTheDocument();
+  });
+
+  it('displays ticket description', () => {
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
     
-    expect(screen.getByText('All tickets for this event are currently sold out.')).toBeInTheDocument();
-    // Continue button should be disabled
-    expect(screen.getByText('Continue')).toBeDisabled();
+    render(
+      <TicketSelection 
+        tickets={[baseTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    expect(screen.getByText('Standard entry ticket')).toBeInTheDocument();
+  });
+
+  it('handles sold out tickets correctly', () => {
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
+    
+    render(
+      <TicketSelection 
+        tickets={[soldOutTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    const selectButton = screen.getByRole('button', { name: /select/i });
+    expect(selectButton).toBeDisabled();
+  });
+
+  it('shows remaining quantity for tickets', () => {
+    const partiallyFilledTicket: TicketTypeSchema = {
+      ...baseTicket,
+      quantity_total: 100,
+      quantity_sold: 60,
+      quantity_reserved: 10
+    };
+
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
+    
+    render(
+      <TicketSelection 
+        tickets={[partiallyFilledTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    // Available = Total - Sold - Reserved = 100 - 60 - 10 = 30
+    expect(screen.getByText('30 tickets remaining')).toBeInTheDocument();
+  });
+
+  it('handles tickets with zero remaining quantity', () => {
+    const noRemainingTicket: TicketTypeSchema = {
+      ...baseTicket,
+      quantity_total: 100,
+      quantity_sold: 90,
+      quantity_reserved: 10,
+      status: 'ACTIVE' as TicketStatus
+    };
+
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
+    
+    render(
+      <TicketSelection 
+        tickets={[noRemainingTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    const selectButton = screen.getByRole('button', { name: /select/i });
+    expect(selectButton).toBeDisabled();
+    expect(screen.getByText('No tickets available')).toBeInTheDocument();
+  });
+
+  it('handles inactive tickets correctly', () => {
+    const inactiveTicket: TicketTypeSchema = {
+      ...baseTicket,
+      status: 'INACTIVE' as TicketStatus
+    };
+
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
+    
+    render(
+      <TicketSelection 
+        tickets={[inactiveTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    // Inactive tickets should not be displayed at all
+    expect(screen.queryByText('Regular Ticket')).not.toBeInTheDocument();
+  });
+
+  it('displays correct currency format for different prices', () => {
+    const expensiveTicket: TicketTypeSchema = {
+      ...baseTicket,
+      base_price: 1500.50
+    };
+
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
+    
+    render(
+      <TicketSelection 
+        tickets={[expensiveTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    expect(screen.getByText('₹1,500.50')).toBeInTheDocument();
+  });
+
+  it('handles quantity selection within limits', () => {
+    const ticketWithLimits: TicketTypeSchema = {
+      ...baseTicket,
+      pricing_rules: [{
+        min_purchase: 2,
+        max_purchase: 5,
+        price: 90 // 10% off base price
+      }]
+    };
+
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
+    
+    render(
+      <TicketSelection 
+        tickets={[ticketWithLimits]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    // Initial quantity should be min_purchase (2)
+    expect(screen.getByText('2')).toBeInTheDocument();
+
+    // Try to decrease below minimum
+    const decreaseButton = screen.getByRole('button', { name: /minus/i });
+    fireEvent.click(decreaseButton);
+    expect(screen.getByText('2')).toBeInTheDocument(); // Should stay at 2
+
+    // Increase to maximum
+    const increaseButton = screen.getByRole('button', { name: /plus/i });
+    fireEvent.click(increaseButton);
+    fireEvent.click(increaseButton);
+    fireEvent.click(increaseButton);
+    expect(screen.getByText('5')).toBeInTheDocument();
+
+    // Try to increase beyond maximum
+    fireEvent.click(increaseButton);
+    expect(screen.getByText('5')).toBeInTheDocument(); // Should stay at 5
+  });
+
+  it('validates access codes correctly', () => {
+    const ticketWithAccessCode: TicketTypeSchema = {
+      ...baseTicket,
+      visibility_rules: {
+        access_codes: ['VALID123']
+      }
+    };
+
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
+    
+    render(
+      <TicketSelection 
+        tickets={[ticketWithAccessCode]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    const accessCodeInput = screen.getByPlaceholderText('Enter access code');
+    const selectButton = screen.getByRole('button', { name: /select/i });
+
+    // Button should be disabled without access code
+    expect(selectButton).toBeDisabled();
+
+    // Enter invalid code
+    fireEvent.change(accessCodeInput, { target: { value: 'INVALID' } });
+    expect(selectButton).toBeDisabled();
+
+    // Enter valid code
+    fireEvent.change(accessCodeInput, { target: { value: 'VALID123' } });
+    expect(selectButton).not.toBeDisabled();
+  });
+
+  it('applies pricing rules correctly', () => {
+    const now = new Date();
+    const ticketWithPricingRules: TicketTypeSchema = {
+      ...baseTicket,
+      pricing_rules: [
+        {
+          min_purchase: 1,
+          max_purchase: 10,
+          price: 80, // 20% off base price
+          start_date: new Date(now.getTime() - 86400000).toISOString(), // Yesterday
+          end_date: new Date(now.getTime() + 86400000).toISOString() // Tomorrow
+        }
+      ]
+    };
+
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
+    
+    render(
+      <TicketSelection 
+        tickets={[ticketWithPricingRules]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    // Base price is 100, with 20% discount = 80
+    expect(screen.getByText('₹80')).toBeInTheDocument();
+    expect(screen.getByText('Special price')).toBeInTheDocument();
+
+    // Original price should be shown struck through
+    expect(screen.getByText('₹100')).toHaveStyle({ textDecoration: 'line-through' });
+  });
+
+  it('shows tooltip for role-restricted tickets', () => {
+    const multiRoleTicket: TicketTypeSchema = {
+      ...baseTicket,
+      visibility_rules: {
+        restricted_to: ['runner', 'organizer']
+      }
+    };
+
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['runner'] } });
+    
+    render(
+      <TicketSelection 
+        tickets={[multiRoleTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    const badge = screen.getByText('runner, organizer');
+    expect(badge).toHaveClass('cursor-help');
+    
+    // The tooltip content should be in the document but hidden
+    expect(screen.getByText('This ticket is restricted to runner or organizer only.')).toBeInTheDocument();
+  });
+
+  it('shows info message for tickets requiring access code', () => {
+    const accessCodeTicket: TicketTypeSchema = {
+      ...baseTicket,
+      visibility_rules: {
+        access_codes: ['CODE123']
+      }
+    };
+
+    (auth.useAuth as jest.Mock).mockReturnValue({ user: { roles: ['user'] } });
+    
+    render(
+      <TicketSelection 
+        tickets={[accessCodeTicket]} 
+        onSelect={mockOnSelect}
+      />
+    );
+
+    expect(screen.getByText('This ticket requires an access code')).toBeInTheDocument();
   });
 }); 

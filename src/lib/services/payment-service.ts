@@ -1,6 +1,7 @@
 'use server';
 
 import { createServerClient } from '@supabase/ssr';
+import { type SupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { Database } from '@/database.types';
 import { redirect } from 'next/navigation';
@@ -8,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { revalidatePath } from 'next/cache';
 
 // Create a Supabase client for server components
-const createServerSupabaseClient = async () => {
+export const createServerSupabaseClient = async (): Promise<SupabaseClient<Database>> => {
   const cookieStore = cookies();
   return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -59,10 +60,155 @@ interface CashfreeOrderResponse {
   payment_session_id: string;
 }
 
+interface TicketDetails {
+  name: string;
+  price: number;
+}
+
+interface ProfileDetails {
+  name: string;
+  email: string;
+  phone: string | null;
+}
+
+interface RegistrationDetails {
+  id: string;
+  event_id: string;
+  user_id: string;
+  ticket_id: string;
+  status: string;
+  tickets: TicketDetails;
+  profiles: ProfileDetails;
+}
+
+export interface PaymentVerificationResult {
+  success: boolean;
+  registrationId: string;
+  status: PaymentStatus;
+  message?: string;
+  receipt?: {
+    receipt_number: string;
+    payment_id: string;
+    order_id: string;
+    amount: number;
+    currency: string;
+    status: string;
+    payment_date: string;
+    customer_name: string;
+    customer_email: string;
+    event_name: string;
+    ticket_name: string;
+  };
+  transactions?: PaymentTransaction[];
+}
+
+/**
+ * Track payment history
+ */
+async function trackPaymentHistory(
+  paymentId: string,
+  status: PaymentStatus,
+  amount: number,
+  transactionData?: any,
+  notes?: string
+): Promise<void> {
+  const supabase = await createServerSupabaseClient();
+  
+  await supabase
+    .from('payment_history')
+    .insert({
+      payment_id: paymentId,
+      status,
+      amount,
+      transaction_data: transactionData,
+      notes
+    });
+}
+
+/**
+ * Update payment analytics
+ */
+async function updatePaymentAnalytics(
+  eventId: string,
+  status: PaymentStatus,
+  amount: number
+): Promise<void> {
+  const supabase = await createServerSupabaseClient();
+  const today = new Date().toISOString().split('T')[0];
+  
+  // Get or create analytics record for today
+  const { data: analytics, error } = await supabase
+    .from('payment_analytics')
+    .select()
+    .eq('event_id', eventId)
+    .eq('date', today)
+    .single();
+    
+  if (error) {
+    // Create new record if not exists
+    await supabase
+      .from('payment_analytics')
+      .insert({
+        event_id: eventId,
+        date: today,
+        total_payments: 1,
+        total_amount: amount,
+        successful_payments: status === 'completed' ? 1 : 0,
+        failed_payments: status === 'failed' ? 1 : 0,
+        refunded_payments: status === 'refunded' ? 1 : 0,
+        average_amount: amount
+      });
+  } else {
+    // Update existing record
+    const newTotalAmount = analytics.total_amount + amount;
+    const newTotalPayments = analytics.total_payments + 1;
+    
+    await supabase
+      .from('payment_analytics')
+      .update({
+        total_payments: newTotalPayments,
+        total_amount: newTotalAmount,
+        successful_payments: status === 'completed' ? analytics.successful_payments + 1 : analytics.successful_payments,
+        failed_payments: status === 'failed' ? analytics.failed_payments + 1 : analytics.failed_payments,
+        refunded_payments: status === 'refunded' ? analytics.refunded_payments + 1 : analytics.refunded_payments,
+        average_amount: newTotalAmount / newTotalPayments,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', analytics.id);
+  }
+}
+
+/**
+ * Generate receipt number
+ */
+function generateReceiptNumber(orderId: string): string {
+  const timestamp = Date.now().toString().slice(-6);
+  return `RCP-${orderId.slice(0, 8)}-${timestamp}`;
+}
+
+/**
+ * Create payment receipt
+ */
+async function createPaymentReceipt(
+  paymentId: string,
+  orderId: string,
+  transactionData: any
+): Promise<void> {
+  const supabase = await createServerSupabaseClient();
+  
+  await supabase
+    .from('payment_receipts')
+    .insert({
+      payment_id: paymentId,
+      receipt_number: generateReceiptNumber(orderId),
+      receipt_data: transactionData
+    });
+}
+
 /**
  * Create a new payment order
  */
-export async function createPaymentOrder(registrationId: string): Promise<PaymentData> {
+export async function createPaymentOrder(registrationId: string, paymentMethodId: string): Promise<PaymentData> {
   const supabase = await createServerSupabaseClient();
   
   // Get the current session
@@ -70,6 +216,18 @@ export async function createPaymentOrder(registrationId: string): Promise<Paymen
   
   if (!session) {
     redirect('/auth');
+  }
+
+  // Verify payment method exists and is active
+  const { data: paymentMethod, error: methodError } = await supabase
+    .from('payment_methods')
+    .select('*')
+    .eq('id', paymentMethodId)
+    .eq('is_active', true)
+    .single();
+
+  if (methodError || !paymentMethod) {
+    throw new Error('Invalid or inactive payment method');
   }
   
   // Get registration details
@@ -81,8 +239,8 @@ export async function createPaymentOrder(registrationId: string): Promise<Paymen
       user_id,
       ticket_id,
       status,
-      tickets:tickets (name, price),
-      profiles:profiles (name, email, phone)
+      tickets!inner (name, price),
+      profiles!inner (name, email, phone)
     `)
     .eq('id', registrationId)
     .eq('user_id', session.user.id)
@@ -92,8 +250,14 @@ export async function createPaymentOrder(registrationId: string): Promise<Paymen
     throw new Error(`Registration not found: ${regError?.message}`);
   }
   
+  const typedRegistration = {
+    ...registration,
+    tickets: registration.tickets[0],
+    profiles: registration.profiles[0]
+  } as RegistrationDetails;
+  
   // If ticket is free, mark payment as completed and skip payment
-  if (registration.tickets.price === 0) {
+  if (typedRegistration.tickets.price === 0) {
     await supabase
       .from('registrations')
       .update({
@@ -103,22 +267,22 @@ export async function createPaymentOrder(registrationId: string): Promise<Paymen
       })
       .eq('id', registrationId);
       
-    revalidatePath(`/events/${registration.event_id}/register`);
+    revalidatePath(`/events/${typedRegistration.event_id}/register`);
     
     // Return order data with zero amount
     return {
-      orderId: `FREE-${registration.id}`,
+      orderId: `FREE-${typedRegistration.id}`,
       orderAmount: 0,
       orderCurrency: 'INR',
-      customerName: registration.profiles.name,
-      customerEmail: registration.profiles.email,
-      customerPhone: registration.profiles.phone || '',
-      returnUrl: `${process.env.NEXT_PUBLIC_APP_URL}/events/${registration.event_id}/register/payment-result?registrationId=${registrationId}`
+      customerName: typedRegistration.profiles.name,
+      customerEmail: typedRegistration.profiles.email,
+      customerPhone: typedRegistration.profiles.phone || '',
+      returnUrl: `${process.env.NEXT_PUBLIC_APP_URL}/events/${typedRegistration.event_id}/register/payment-result?registrationId=${registrationId}`
     };
   }
   
   // Create a unique order ID
-  const orderId = `${registration.event_id.slice(0, 8)}-${Date.now()}`;
+  const orderId = `${typedRegistration.event_id.slice(0, 8)}-${Date.now()}`;
   
   // Generate payment entry
   const { data: payment, error: paymentError } = await supabase
@@ -127,7 +291,7 @@ export async function createPaymentOrder(registrationId: string): Promise<Paymen
       id: uuidv4(),
       registration_id: registrationId,
       order_id: orderId,
-      amount: registration.tickets.price,
+      amount: typedRegistration.tickets.price,
       currency: 'INR',
       status: 'pending'
     })
@@ -137,6 +301,22 @@ export async function createPaymentOrder(registrationId: string): Promise<Paymen
   if (paymentError) {
     throw new Error(`Error creating payment: ${paymentError.message}`);
   }
+  
+  // Track initial payment history
+  await trackPaymentHistory(
+    payment.id,
+    'pending',
+    typedRegistration.tickets.price,
+    null,
+    'Payment order created'
+  );
+  
+  // Update analytics for new payment
+  await updatePaymentAnalytics(
+    typedRegistration.event_id,
+    'pending',
+    typedRegistration.tickets.price
+  );
   
   // Update registration with payment ID
   await supabase
@@ -158,16 +338,16 @@ export async function createPaymentOrder(registrationId: string): Promise<Paymen
       },
       body: JSON.stringify({
         order_id: orderId,
-        order_amount: registration.tickets.price,
+        order_amount: typedRegistration.tickets.price,
         order_currency: 'INR',
         customer_details: {
           customer_id: session.user.id,
-          customer_name: registration.profiles.name,
-          customer_email: registration.profiles.email,
-          customer_phone: registration.profiles.phone
+          customer_name: typedRegistration.profiles.name,
+          customer_email: typedRegistration.profiles.email,
+          customer_phone: typedRegistration.profiles.phone
         },
         order_meta: {
-          return_url: `${process.env.NEXT_PUBLIC_APP_URL}/events/${registration.event_id}/register/payment-result?registrationId=${registrationId}&order_id={order_id}`
+          return_url: `${process.env.NEXT_PUBLIC_APP_URL}/events/${typedRegistration.event_id}/register/payment-result?registrationId=${registrationId}&order_id={order_id}`
         }
       })
     });
@@ -194,10 +374,10 @@ export async function createPaymentOrder(registrationId: string): Promise<Paymen
       orderId: orderData.order_id,
       orderAmount: orderData.order_amount,
       orderCurrency: 'INR',
-      customerName: registration.profiles.name,
-      customerEmail: registration.profiles.email,
-      customerPhone: registration.profiles.phone || '',
-      returnUrl: `${process.env.NEXT_PUBLIC_APP_URL}/events/${registration.event_id}/register/payment-result?registrationId=${registrationId}`,
+      customerName: typedRegistration.profiles.name,
+      customerEmail: typedRegistration.profiles.email,
+      customerPhone: typedRegistration.profiles.phone || '',
+      returnUrl: `${process.env.NEXT_PUBLIC_APP_URL}/events/${typedRegistration.event_id}/register/payment-result?registrationId=${registrationId}`,
       paymentSessionId: orderData.payment_session_id
     };
   } catch (error) {
@@ -218,13 +398,8 @@ export async function createPaymentOrder(registrationId: string): Promise<Paymen
 /**
  * Verify payment status
  */
-export async function verifyPaymentStatus(orderId: string): Promise<{
-  success: boolean;
-  registrationId: string;
-  status: PaymentStatus;
-  message?: string;
-}> {
-  const supabase = createServerSupabaseClient();
+export async function verifyPaymentStatus(orderId: string): Promise<PaymentVerificationResult> {
+  const supabase = await createServerSupabaseClient();
   
   // Get payment details from our database
   const { data: payment, error: paymentError } = await supabase
@@ -307,6 +482,39 @@ export async function verifyPaymentStatus(orderId: string): Promise<{
         .eq('id', payment.registration_id);
     }
     
+    // Track payment history
+    await trackPaymentHistory(
+      payment.id,
+      paymentStatus,
+      payment.amount,
+      orderData,
+      `Payment status updated to ${paymentStatus}`
+    );
+    
+    // Update analytics
+    const { data: registration } = await supabase
+      .from('registrations')
+      .select('event_id')
+      .eq('id', payment.registration_id)
+      .single();
+      
+    if (registration) {
+      await updatePaymentAnalytics(
+        registration.event_id,
+        paymentStatus,
+        payment.amount
+      );
+    }
+    
+    // Create receipt for completed payments
+    if (paymentStatus === 'completed') {
+      await createPaymentReceipt(
+        payment.id,
+        orderId,
+        orderData
+      );
+    }
+    
     // Return the payment verification result
     return {
       success: paymentStatus === 'completed',
@@ -328,15 +536,28 @@ export async function verifyPaymentStatus(orderId: string): Promise<{
 /**
  * Process payment webhook
  */
-export async function processPaymentWebhook(payload: any): Promise<{
+export async function processPaymentWebhook(payload: any, signature: string, timestamp: string): Promise<{
   success: boolean;
   message: string;
 }> {
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   
-  // Validate webhook signature
-  // Implement signature validation based on Cashfree docs
-  // This ensures the webhook is actually from Cashfree
+  // Verify webhook signature using Cashfree's built-in verification
+  try {
+    const isValid = await verifyWebhookSignature(signature, JSON.stringify(payload), timestamp);
+    if (!isValid) {
+      return {
+        success: false,
+        message: 'Invalid webhook signature'
+      };
+    }
+  } catch (error) {
+    console.error('Webhook signature verification error:', error);
+    return {
+      success: false,
+      message: `Signature verification failed: ${error.message}`
+    };
+  }
   
   const orderId = payload.data.order.order_id;
   
@@ -385,6 +606,39 @@ export async function processPaymentWebhook(payload: any): Promise<{
     })
     .eq('order_id', orderId);
     
+  // Track payment history
+  await trackPaymentHistory(
+    payment.id,
+    paymentStatus,
+    payment.amount,
+    payload.data,
+    `Payment status updated to ${paymentStatus}`
+  );
+  
+  // Update analytics
+  const { data: registration } = await supabase
+    .from('registrations')
+    .select('event_id')
+    .eq('id', payment.registration_id)
+    .single();
+    
+  if (registration) {
+    await updatePaymentAnalytics(
+      registration.event_id,
+      paymentStatus,
+      payment.amount
+    );
+  }
+  
+  // Create receipt for completed payments
+  if (paymentStatus === 'completed') {
+    await createPaymentReceipt(
+      payment.id,
+      orderId,
+      payload.data
+    );
+  }
+  
   // If payment is completed, update registration status
   if (paymentStatus === 'completed') {
     await supabase
@@ -406,21 +660,24 @@ export async function processPaymentWebhook(payload: any): Promise<{
       .eq('id', payment.registration_id);
   }
   
-  // Get registration details to revalidate path
-  const { data: registration } = await supabase
-    .from('registrations')
-    .select('event_id')
-    .eq('id', payment.registration_id)
-    .single();
-    
-  if (registration) {
-    revalidatePath(`/events/${registration.event_id}/register`);
-  }
-  
   return {
     success: true,
-    message: 'Webhook processed successfully'
+    message: `Payment webhook processed successfully. Status: ${paymentStatus}`
   };
+}
+
+/**
+ * Verify webhook signature using Cashfree's method
+ */
+async function verifyWebhookSignature(signature: string, payload: string, timestamp: string): Promise<boolean> {
+  const { Cashfree } = require('cashfree-pg');
+  
+  try {
+    return Cashfree.PGVerifyWebhookSignature(signature, payload, timestamp);
+  } catch (error) {
+    console.error('Webhook signature verification error:', error);
+    return false;
+  }
 }
 
 /**
@@ -433,7 +690,7 @@ export async function createRefund(
   success: boolean;
   message: string;
 }> {
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   
   // Get payment details
   const { data: payment, error: paymentError } = await supabase
@@ -483,6 +740,15 @@ export async function createRefund(
       })
       .eq('order_id', payment.order_id);
       
+    // Track refund in payment history
+    await trackPaymentHistory(
+      payment.id,
+      'refunded',
+      payment.amount,
+      refundData,
+      reason
+    );
+    
     // Update registration
     await supabase
       .from('registrations')
@@ -493,6 +759,21 @@ export async function createRefund(
       })
       .eq('id', registrationId);
       
+    // Update analytics for refund
+    const { data: registration } = await supabase
+      .from('registrations')
+      .select('event_id')
+      .eq('id', registrationId)
+      .single();
+      
+    if (registration) {
+      await updatePaymentAnalytics(
+        registration.event_id,
+        'refunded',
+        payment.amount
+      );
+    }
+    
     return {
       success: true,
       message: 'Refund initiated successfully'

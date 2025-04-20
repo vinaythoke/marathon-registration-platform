@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 import { RaceKit, KitDistribution } from '@/types/volunteer';
 
 export function useKitRealTimeUpdates(
@@ -13,6 +13,8 @@ export function useKitRealTimeUpdates(
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const supabase = createClient();
+    
     // Create a single channel for both tables
     const channel = supabase
       .channel(`kit-updates-${eventId}`)

@@ -3,8 +3,13 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -14,10 +19,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { AlertCircle, Package, Plus } from "lucide-react";
+import { Package, Plus } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { createKit, updateKit } from "@/lib/services/kit-service";
-import { RaceKit } from "@/types/volunteer";
+import { RaceKit, RaceKitSize, RaceKitType } from "@/types/volunteer";
 
 interface KitManagementFormProps {
   eventId: string;
@@ -25,6 +30,9 @@ interface KitManagementFormProps {
   onSuccess?: (kit: RaceKit) => void;
   triggerButton?: React.ReactNode;
 }
+
+const KIT_SIZES: RaceKitSize[] = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+const KIT_TYPES: RaceKitType[] = ['standard', 'premium', 'elite'];
 
 export default function KitManagementForm({
   eventId,
@@ -37,25 +45,25 @@ export default function KitManagementForm({
   const [error, setError] = useState<string | null>(null);
 
   // Form state
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [totalQuantity, setTotalQuantity] = useState(0);
+  const [size, setSize] = useState<RaceKitSize>('M');
+  const [type, setType] = useState<RaceKitType>('standard');
+  const [quantity, setQuantity] = useState(0);
 
   // Initialize form values when editing an existing kit
   useEffect(() => {
     if (kit) {
-      setName(kit.name);
-      setDescription(kit.description || "");
-      setTotalQuantity(kit.total_quantity);
+      setSize(kit.size);
+      setType(kit.type);
+      setQuantity(kit.quantity);
     }
   }, [kit]);
 
   // Reset form when dialog closes
   useEffect(() => {
     if (!isOpen && !kit) {
-      setName("");
-      setDescription("");
-      setTotalQuantity(0);
+      setSize('M');
+      setType('standard');
+      setQuantity(0);
       setError(null);
     }
   }, [isOpen, kit]);
@@ -67,8 +75,8 @@ export default function KitManagementForm({
     try {
       setIsLoading(true);
 
-      if (totalQuantity <= 0) {
-        setError("Quantity must be greater than zero.");
+      if (quantity < 0) {
+        setError("Quantity must be zero or greater.");
         return;
       }
 
@@ -76,19 +84,18 @@ export default function KitManagementForm({
 
       if (kit) {
         // Update existing kit
-        result = await updateKit(kit.id, {
-          name,
-          description,
-          total_quantity: totalQuantity,
+        result = await updateKit(kit.kit_id, {
+          size,
+          type,
+          quantity,
         });
       } else {
         // Create new kit
         result = await createKit({
           event_id: eventId,
-          name,
-          description,
-          total_quantity: totalQuantity,
-          distributed_quantity: 0,
+          size,
+          type,
+          quantity,
         });
       }
 
@@ -131,52 +138,63 @@ export default function KitManagementForm({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 py-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Size</label>
+            <Select
+              value={size}
+              onValueChange={(value) => setSize(value as RaceKitSize)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select size" />
+              </SelectTrigger>
+              <SelectContent>
+                {KIT_SIZES.map((size) => (
+                  <SelectItem key={size} value={size}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Type</label>
+            <Select
+              value={type}
+              onValueChange={(value) => setType(value as RaceKitType)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select type" />
+              </SelectTrigger>
+              <SelectContent>
+                {KIT_TYPES.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Quantity</label>
+            <Input
+              type="number"
+              min={0}
+              value={quantity}
+              onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
+              placeholder="Enter quantity"
+            />
+          </div>
+
           {error && (
             <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 
-          <div className="space-y-2">
-            <Label htmlFor="name">Kit Name</Label>
-            <Input
-              id="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., Standard Runner Kit"
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="description">Description (Optional)</Label>
-            <Textarea
-              id="description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe the contents of this kit..."
-              rows={3}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="quantity">Total Quantity</Label>
-            <Input
-              id="quantity"
-              type="number"
-              min="1"
-              value={totalQuantity || ""}
-              onChange={(e) => setTotalQuantity(parseInt(e.target.value) || 0)}
-              required
-            />
-            <p className="text-xs text-muted-foreground">
-              Total number of kits available for distribution
-            </p>
-          </div>
-
-          <DialogFooter className="pt-4">
+          <DialogFooter>
             <Button
               type="button"
               variant="outline"
@@ -186,11 +204,7 @@ export default function KitManagementForm({
               Cancel
             </Button>
             <Button type="submit" disabled={isLoading}>
-              {isLoading
-                ? "Saving..."
-                : kit
-                ? "Update Kit"
-                : "Create Kit"}
+              {isLoading ? "Saving..." : kit ? "Update Kit" : "Create Kit"}
             </Button>
           </DialogFooter>
         </form>

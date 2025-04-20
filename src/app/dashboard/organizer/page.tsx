@@ -73,14 +73,16 @@ export default async function OrganizerDashboardPage() {
 
     // Get user profile
     const { data: profile } = await supabase
-      .from('users')
+      .from('profiles')
       .select('role, first_name, last_name')
-      .eq('auth_id', session.user.id)
+      .eq('id', session.user.id)
       .single();
       
-    // Ensure user is an organizer
-    if (profile?.role !== 'organizer') {
-      redirect('/dashboard');
+    // Ensure user is an organizer - don't redirect to avoid loop
+    if (!profile || profile.role !== 'organizer') {
+      // Instead of redirect('/dashboard') which causes a loop,
+      // display an error message
+      throw new Error('Access denied. This page is only for organizers.');
     }
     
     userName = profile ? `${profile.first_name} ${profile.last_name}` : '';

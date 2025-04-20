@@ -17,9 +17,10 @@ import {
   TableCell 
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Package } from "lucide-react";
+import { CheckCircle, Package, Clock, AlertCircle } from "lucide-react";
 import { getKitDistributionsByRegistration } from "@/lib/services/kit-service";
-import { KitDistribution } from "@/types/volunteer";
+import { KitDistribution, PickupStatus } from "@/types/volunteer";
+import { cn } from "@/lib/utils";
 
 interface KitDistributionListProps {
   registrationId: string;
@@ -48,6 +49,35 @@ export default function KitDistributionList({ registrationId }: KitDistributionL
     loadKitDistributions();
   }, [registrationId]);
 
+  const getStatusBadge = (status: PickupStatus) => {
+    switch (status) {
+      case "PICKED_UP":
+        return (
+          <Badge variant="outline" className="bg-green-50 text-green-800">
+            <CheckCircle className="h-3 w-3 mr-1" /> Picked Up
+          </Badge>
+        );
+      case "READY":
+        return (
+          <Badge variant="outline" className="bg-blue-50 text-blue-800">
+            <Package className="h-3 w-3 mr-1" /> Ready for Pickup
+          </Badge>
+        );
+      case "PENDING":
+        return (
+          <Badge variant="outline" className="bg-yellow-50 text-yellow-800">
+            <Clock className="h-3 w-3 mr-1" /> Pending
+          </Badge>
+        );
+      default:
+        return (
+          <Badge variant="outline" className="bg-gray-50 text-gray-800">
+            <AlertCircle className="h-3 w-3 mr-1" /> Unknown
+          </Badge>
+        );
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -57,8 +87,8 @@ export default function KitDistributionList({ registrationId }: KitDistributionL
             <CardTitle>Race Kit Distribution</CardTitle>
             <CardDescription>
               {distributions.length === 0
-                ? "No race kits have been distributed yet"
-                : "Race kits that have been distributed to you"}
+                ? "No race kits have been assigned yet"
+                : "Track your race kit status and pickup details"}
             </CardDescription>
           </div>
         </div>
@@ -75,9 +105,9 @@ export default function KitDistributionList({ registrationId }: KitDistributionL
         ) : distributions.length === 0 ? (
           <div className="py-6 text-center">
             <Package className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
-            <p className="text-muted-foreground">Your race kit is not ready for pickup yet.</p>
+            <p className="text-muted-foreground">Your race kit has not been assigned yet.</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Race kits will be available for pickup at the event.
+              You will be notified when your race kit is ready for pickup.
             </p>
           </div>
         ) : (
@@ -86,9 +116,11 @@ export default function KitDistributionList({ registrationId }: KitDistributionL
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Kit Type</TableHead>
-                    <TableHead>Distributed Date</TableHead>
-                    <TableHead>Distributed By</TableHead>
+                    <TableHead>Kit Details</TableHead>
+                    <TableHead>Size</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Pickup Location</TableHead>
                     <TableHead>Notes</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -96,30 +128,48 @@ export default function KitDistributionList({ registrationId }: KitDistributionL
                   {distributions.map((distribution) => (
                     <TableRow key={distribution.id}>
                       <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          {distribution.kit?.name || "Unknown Kit"}
-                          <Badge variant="outline" className="bg-green-50 text-green-800">
-                            <CheckCircle className="h-3 w-3 mr-1" /> Received
-                          </Badge>
+                        <div className="flex flex-col">
+                          <span>{distribution.kit?.name || "Unknown Kit"}</span>
+                          {distribution.pickup_date && (
+                            <span className="text-xs text-muted-foreground">
+                              Pickup: {new Date(distribution.pickup_date).toLocaleDateString()}
+                            </span>
+                          )}
                         </div>
                       </TableCell>
+                      <TableCell>{distribution.kit?.size || "-"}</TableCell>
+                      <TableCell>{distribution.kit?.type || "-"}</TableCell>
                       <TableCell>
-                        {new Date(distribution.distributed_at).toLocaleDateString()}
+                        {getStatusBadge(distribution.status)}
                       </TableCell>
                       <TableCell>
-                        {distribution.distributor?.name || "Unknown"}
+                        <div className="flex flex-col">
+                          <span>{distribution.pickup_location || "-"}</span>
+                          {distribution.pickup_time && (
+                            <span className="text-xs text-muted-foreground">
+                              Time: {distribution.pickup_time}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
-                      <TableCell className="max-w-[200px] truncate">
-                        {distribution.notes || "-"}
+                      <TableCell className="max-w-[200px]">
+                        <p className="truncate" title={distribution.notes || "-"}>
+                          {distribution.notes || "-"}
+                        </p>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </div>
-            <p className="text-xs text-muted-foreground mt-4">
-              If you have any questions about your race kit, please contact the event organizers.
-            </p>
+            <div className="mt-4 space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Please bring a valid ID when picking up your race kit.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                If you have any questions about your race kit, please contact the event organizers.
+              </p>
+            </div>
           </>
         )}
       </CardContent>
